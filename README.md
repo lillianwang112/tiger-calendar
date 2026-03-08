@@ -2,7 +2,7 @@
 
 A personal calendar and task manager with the aesthetic of a Princeton tiger.
 
-**Live:** `https://<your-username>.github.io/tiger-calendar/`
+**Live:** `https://lillianwang112.github.io/tiger-calendar/`
 
 ## Features
 
@@ -24,7 +24,3 @@ Zero build step. Single `index.html` using:
 - Babel Standalone for JSX compilation
 - Google Fonts (DM Serif Display, DM Mono, DM Sans)
 - localStorage for persistence
-
-## Setup
-
-Just open `index.html` in a browser, or deploy to GitHub Pages (see below).
