@@ -154,7 +154,7 @@ function sv(d){try{localStorage.setItem(SK,JSON.stringify(d));}catch(e){}}
 function App(){
   const saved=useMemo(()=>ld(),[]);
   const[theme,setTheme]=useState(saved?.theme||"dark");
-  const[view,setView]=useState("week");
+  const[view,setView]=useState(()=>window.innerWidth<768?"day":"week");
   const[sbM,setSbM]=useState("both");
   const[cd,setCd]=useState(new Date());
   const[events,setEv]=useState(saved?.events||[]);
@@ -167,7 +167,12 @@ function App(){
   const[ac,setAc]=useState(()=>{const s=new Set(Object.keys(saved?.cats||BCAT));s.add("personal");s.add("other");s.add("_academic");return s;});
   const[drag,setDrag]=useState(null);
   const[mcM,setMcM]=useState(()=>new Date());
-  const[sbO,setSbO]=useState(true);
+  const[sbO,setSbO]=useState(()=>window.innerWidth>=768);
+
+  useEffect(()=>{
+    const onResize=()=>{if(window.innerWidth<768)setSbO(false);};
+    window.addEventListener("resize",onResize);return()=>window.removeEventListener("resize",onResize);
+  },[]);
 
   useEffect(()=>{setAc(p=>{const n=new Set(p);Object.keys(cats).forEach(k=>n.add(k));return n;});},[cats]);
   useEffect(()=>{sv({events,tasks,courses,cats,sem,theme});},[events,tasks,courses,cats,sem,theme]);
@@ -284,10 +289,15 @@ function App(){
       </div>
     </div>
 
-    <div style={{display:"flex",flex:1,overflow:"hidden"}}>
-      {sbO&&<Sidebar T={T} m={sbM} sm={setSbM} tasks={tasks} events={events} cats={cats}
-        ac={ac} tC={tC} tT={tT} dT={dT} setModal={setModal} cd={cd} setCd={setCd}
-        mcM={mcM} setMcM={setMcM} MO={MO} SE={SE} insights={insights}/>}
+    <div style={{display:"flex",flex:1,overflow:"hidden",position:"relative"}}>
+      {sbO&&<>
+        {window.innerWidth<768&&<div onClick={()=>setSbO(false)} style={{position:"absolute",inset:0,background:T.ov,zIndex:49}}/>}
+        <div style={window.innerWidth<768?{position:"absolute",left:0,top:0,bottom:0,zIndex:50}:{}}>
+          <Sidebar T={T} m={sbM} sm={setSbM} tasks={tasks} events={events} cats={cats}
+            ac={ac} tC={tC} tT={tT} dT={dT} setModal={setModal} cd={cd} setCd={setCd}
+            mcM={mcM} setMcM={setMcM} MO={MO} SE={SE} insights={insights}/>
+        </div>
+      </>}
       <div style={{flex:1,overflow:"hidden",position:"relative",display:"flex",flexDirection:"column"}}>
         {view==="day"&&<TG T={T} dates={[cd]} events={events} tasks={tasks} cats={cats} ac={ac}
           setModal={setModal} MO={MO} SE={SE} drag={drag} setDrag={setDrag}/>}
@@ -587,12 +597,12 @@ function CSModal({T,MO,SE,courses:ec,sem:es,onSave,onClose}){
         <div style={{marginBottom:4}}><label style={{fontFamily:MO,fontSize:"0.48rem",color:T.t3,letterSpacing:"0.07em",textTransform:"uppercase",display:"block",marginBottom:2}}>Lecture Time</label>{TS(c.id,"l")}</div>
         <div style={{marginBottom:6}}><label style={{fontFamily:MO,fontSize:"0.48rem",color:T.t3,letterSpacing:"0.07em",textTransform:"uppercase",display:"block",marginBottom:2}}>Lecture Location</label>
           <input value={c.lecLoc||""} onChange={e=>up(c.id,"lecLoc",e.target.value)} placeholder="e.g. Fine Hall 214" style={{...IS,width:"100%"}}/></div>
-        <Tog cid={c.id} field="hasPrec" label="Has Precept"/>
-        <Section cid={c.id} flag="hasPrec" dayF="precDays" timePre="p" locF="precLoc" label="Precept"/>
-        <Tog cid={c.id} field="hasLab" label="Has Lab"/>
-        <Section cid={c.id} flag="hasLab" dayF="labDays" timePre="lab" locF="labLoc" label="Lab"/>
-        <Tog cid={c.id} field="hasDrill" label="Has Drill"/>
-        <Section cid={c.id} flag="hasDrill" dayF="drillDays" timePre="dr" locF="drillLoc" label="Drill"/>
+        {Tog({cid:c.id, field:"hasPrec", label:"Has Precept"})}
+        {Section({cid:c.id, flag:"hasPrec", dayF:"precDays", timePre:"p", locF:"precLoc", label:"Precept"})}
+        {Tog({cid:c.id, field:"hasLab", label:"Has Lab"})}
+        {Section({cid:c.id, flag:"hasLab", dayF:"labDays", timePre:"lab", locF:"labLoc", label:"Lab"})}
+        {Tog({cid:c.id, field:"hasDrill", label:"Has Drill"})}
+        {Section({cid:c.id, flag:"hasDrill", dayF:"drillDays", timePre:"dr", locF:"drillLoc", label:"Drill"})}
       </div>)}
       <button onClick={add} style={{width:"100%",padding:8,background:"transparent",border:`1px dashed ${T.bd}`,
         borderRadius:6,color:T.t3,fontFamily:MO,fontSize:"0.62rem",cursor:"pointer",marginBottom:12}}>+ Add Course</button>
