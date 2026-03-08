@@ -1,0 +1,19 @@
+{
+  "name": "TigerCalendar",
+  "short_name": "TigerCal",
+  "description": "A calendar and task manager for Princeton students",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#f5f3ef",
+  "theme_color": "#5c4db3",
+  "orientation": "any",
+  "categories": ["education", "productivity"],
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
