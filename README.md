@@ -9,7 +9,7 @@ A personal calendar and task manager with the aesthetic of a Princeton tiger.
 - **Day / Week / Month / Year** views
 - **Drag-to-create** events on the time grid (day & week views)
 - **Tasks + Events** — separate types with a combined sidebar view
-- **Category filtering** (MAT 217, COS 126, CHI 108, ECO 310, HMEI, QCB 311, Personal, Other)
+- **Category filtering**
 - **Dark / Light** theme toggle
 - **Keyboard shortcuts**: `D` `W` `M` `Y` views · `T` today · `←` `→` navigate · `N` new event · `[` toggle sidebar
 - **localStorage persistence** — your data stays in your browser
