@@ -39,20 +39,19 @@ const PCAL={
   "spring-2026":{label:"Spring 2026",cs:"2026-01-26",ce:"2026-04-24",
     brk:[["2026-03-07","2026-03-15"]],
     ev:[{t:"Spring Classes Begin",d:"2026-01-26"},{t:"Add/Drop Ends",d:"2026-02-06"},
-      {t:"Midterm Week",d:"2026-03-02"},{t:"Spring Break",d:"2026-03-07"},
+      {t:"Midterm Week",d:"2026-03-02",de:"2026-03-06"},{t:"Spring Break",d:"2026-03-07",de:"2026-03-15"},
       {t:"Classes Resume",d:"2026-03-16"},{t:"P/D/F Deadline",d:"2026-04-10"},
-      {t:"Last Day of Classes",d:"2026-04-24"},{t:"Reading Period",d:"2026-04-27"},
-      {t:"Dean's Date",d:"2026-05-07"},{t:"Finals Begin",d:"2026-05-08"},
-      {t:"Finals End",d:"2026-05-14"},{t:"Commencement",d:"2026-05-26"}]},
+      {t:"Last Day of Classes",d:"2026-04-24"},{t:"Reading Period",d:"2026-04-27",de:"2026-05-06"},
+      {t:"Dean's Date",d:"2026-05-07"},{t:"Finals",d:"2026-05-08",de:"2026-05-14"},
+      {t:"Commencement",d:"2026-05-26"}]},
   "fall-2026":{label:"Fall 2026",cs:"2026-09-02",ce:"2026-12-04",
     brk:[["2026-10-17","2026-10-25"],["2026-11-25","2026-11-30"]],
     ev:[{t:"Fall Classes Begin",d:"2026-09-02"},{t:"Add/Drop Ends",d:"2026-09-15"},
-      {t:"Midterm Week",d:"2026-10-06"},{t:"Fall Recess",d:"2026-10-17"},
+      {t:"Midterm Week",d:"2026-10-06",de:"2026-10-10"},{t:"Fall Recess",d:"2026-10-17",de:"2026-10-25"},
       {t:"Classes Resume",d:"2026-10-26"},{t:"P/D/F Deadline",d:"2026-11-07"},
-      {t:"Thanksgiving Recess",d:"2026-11-25"},{t:"Classes Resume",d:"2026-12-01"},
-      {t:"Last Day of Classes",d:"2026-12-04"},{t:"Reading Period",d:"2026-12-05"},
-      {t:"Dean's Date",d:"2026-12-12"},{t:"Finals Begin",d:"2026-12-13"},
-      {t:"Finals End",d:"2026-12-19"}]},
+      {t:"Thanksgiving Recess",d:"2026-11-25",de:"2026-11-30"},{t:"Classes Resume",d:"2026-12-01"},
+      {t:"Last Day of Classes",d:"2026-12-04"},{t:"Reading Period",d:"2026-12-05",de:"2026-12-11"},
+      {t:"Dean's Date",d:"2026-12-12"},{t:"Finals",d:"2026-12-13",de:"2026-12-19"}]},
 };
 
 const CC=[
@@ -65,12 +64,26 @@ const CC=[
 
 const BCAT={personal:{label:"Personal",color:"#c8b8ff",bg:"rgba(200,184,255,0.12)"},
   other:{label:"Other",color:"#8ecae6",bg:"rgba(142,202,230,0.12)"},
-  _academic:{label:"Academic Cal",color:"#ffa94d",bg:"rgba(255,169,77,0.12)"}};
+  _academic:{label:"Academic Cal",color:"#ffa94d",bg:"rgba(255,169,77,0.12)"},
+  _holidays:{label:"US Holidays",color:"#4ecdc4",bg:"rgba(78,205,196,0.12)"}};
+
+const US_HOLIDAYS=[
+  {t:"New Year's Day",d:"2026-01-01"},{t:"Martin Luther King Jr. Day",d:"2026-01-19"},
+  {t:"Presidents' Day",d:"2026-02-16"},{t:"Memorial Day",d:"2026-05-25"},
+  {t:"Juneteenth",d:"2026-06-19"},{t:"Independence Day",d:"2026-07-04"},
+  {t:"Labor Day",d:"2026-09-07"},{t:"Columbus Day",d:"2026-10-12"},
+  {t:"Veterans Day",d:"2026-11-11"},{t:"Thanksgiving",d:"2026-11-26"},
+  {t:"Christmas Day",d:"2026-12-25"},
+  {t:"New Year's Day",d:"2027-01-01"},{t:"Martin Luther King Jr. Day",d:"2027-01-18"},
+  {t:"Valentine's Day",d:"2026-02-14"},{t:"St. Patrick's Day",d:"2026-03-17"},
+  {t:"Easter",d:"2026-04-05"},{t:"Mother's Day",d:"2026-05-10"},
+  {t:"Father's Day",d:"2026-06-21"},{t:"Halloween",d:"2026-10-31"},
+];
 
 function $d(d){return`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;}
 function $p(s){const[y,m,d]=s.split("-").map(Number);return new Date(y,m-1,d);}
 function $s(a,b){return a.getFullYear()===b.getFullYear()&&a.getMonth()===b.getMonth()&&a.getDate()===b.getDate();}
-function $w(d){const r=new Date(d);r.setDate(r.getDate()-r.getDay());return r;}
+function $w(d,ws=0){const r=new Date(d);const diff=(r.getDay()-ws+7)%7;r.setDate(r.getDate()-diff);return r;}
 function $a(d,n){const r=new Date(d);r.setDate(r.getDate()+n);return r;}
 function $m(y,m){return new Date(y,m+1,0).getDate();}
 function $t(h,m){const p=h>=12?"PM":"AM";return`${h%12||12}:${String(m).padStart(2,"0")} ${p}`;}
@@ -153,7 +166,7 @@ function sv(d){try{localStorage.setItem(SK,JSON.stringify(d));}catch(e){}}
 // ═══ MAIN ═══
 function App(){
   const saved=useMemo(()=>ld(),[]);
-  const[theme,setTheme]=useState(saved?.theme||"dark");
+  const[theme,setTheme]=useState(saved?.theme||"light");
   const[view,setView]=useState(()=>window.innerWidth<768?"day":"week");
   const[sbM,setSbM]=useState("both");
   const[cd,setCd]=useState(new Date());
@@ -164,7 +177,10 @@ function App(){
   const[sem,setSem]=useState(saved?.sem||"spring-2026");
   const[modal,setModal]=useState(null);
   const[csOpen,setCsOpen]=useState(!saved?.courses);
-  const[ac,setAc]=useState(()=>{const s=new Set(Object.keys(saved?.cats||BCAT));s.add("personal");s.add("other");s.add("_academic");return s;});
+  const[ac,setAc]=useState(()=>{const s=new Set(Object.keys(saved?.cats||BCAT));s.add("personal");s.add("other");s.add("_academic");s.add("_holidays");return s;});
+  const[showHolidays,setShowHolidays]=useState(saved?.showHolidays!==false);
+  const[settings,setSettings]=useState(saved?.settings||{weekStart:0,timeZone:Intl.DateTimeFormat().resolvedOptions().timeZone,hourFormat:"12"});
+  const[settingsOpen,setSettingsOpen]=useState(false);
   const[drag,setDrag]=useState(null);
   const[mcM,setMcM]=useState(()=>new Date());
   const[sbO,setSbO]=useState(()=>window.innerWidth>=768);
@@ -174,14 +190,19 @@ function App(){
     window.addEventListener("resize",onResize);return()=>window.removeEventListener("resize",onResize);
   },[]);
 
-  useEffect(()=>{setAc(p=>{const n=new Set(p);Object.keys(cats).forEach(k=>n.add(k));return n;});},[cats]);
-  useEffect(()=>{sv({events,tasks,courses,cats,sem,theme});},[events,tasks,courses,cats,sem,theme]);
+  useEffect(()=>{setAc(p=>{const n=new Set(p);Object.keys(cats).forEach(k=>n.add(k));n.add("_holidays");return n;});},[cats]);
+  useEffect(()=>{sv({events,tasks,courses,cats,sem,theme,showHolidays,settings});},[events,tasks,courses,cats,sem,theme,showHolidays,settings]);
 
   useEffect(()=>{const cal=PCAL[sem];if(!cal)return;
-    setEv(p=>{const na=p.filter(e=>e.category!=="_academic");
-      const ae=cal.ev.map(e=>({id:gi(),title:e.t,date:e.d,category:"_academic",startHour:0,startMin:0,endHour:0,endMin:0,detail:"",_allDay:true}));
-      return[...na,...ae];});
-  },[sem]);
+    setEv(p=>{const na=p.filter(e=>e.category!=="_academic"&&e.category!=="_holidays");
+      const ae=[];cal.ev.forEach(e=>{
+        if(e.de){// Multi-day: create event for each day in range
+          for(let d=$p(e.d);d<=$p(e.de);d=$a(d,1))ae.push({id:gi(),title:e.t,date:$d(d),category:"_academic",startHour:0,startMin:0,endHour:0,endMin:0,detail:"",_allDay:true,_multiDay:true,_mdStart:e.d,_mdEnd:e.de});
+        } else ae.push({id:gi(),title:e.t,date:e.d,category:"_academic",startHour:0,startMin:0,endHour:0,endMin:0,detail:"",_allDay:true});
+      });
+      const he=showHolidays?US_HOLIDAYS.map(e=>({id:gi(),title:e.t,date:e.d,category:"_holidays",startHour:0,startMin:0,endHour:0,endMin:0,detail:"",_allDay:true})):[];
+      return[...na,...ae,...he];});
+  },[sem,showHolidays]);
 
   const T=theme==="dark"?{bg:"#0d0d0f",b2:"#131316",b3:"#1a1a1f",bd:"#2a2a32",tx:"#e8e6f0",t2:"#9896a8",t3:"#5a5868",
     ac:"#c8b8ff",a2:"#8b7fd4",mb:"#1a1a1f",ov:"rgba(0,0,0,0.65)",ib:"#131316",ibd:"#2a2a32",
@@ -197,21 +218,21 @@ function App(){
     else if(view==="month")d.setMonth(d.getMonth()+dir);
     else d.setFullYear(d.getFullYear()+dir);setCd(d);};
 
-  useEffect(()=>{const h=(e)=>{if(modal||csOpen)return;if(["INPUT","TEXTAREA","SELECT"].includes(e.target.tagName))return;
+  useEffect(()=>{const h=(e)=>{if(modal||csOpen||settingsOpen)return;if(["INPUT","TEXTAREA","SELECT"].includes(e.target.tagName))return;
     switch(e.key){case"t":case"T":goT();break;case"d":case"D":setView("day");break;
     case"w":case"W":setView("week");break;case"m":case"M":setView("month");break;
     case"y":case"Y":setView("year");break;case"ArrowLeft":nav(-1);break;case"ArrowRight":nav(1);break;
     case"n":case"N":setModal({type:"event",date:$d(cd)});break;case"[":setSbO(p=>!p);break;}};
-    window.addEventListener("keydown",h);return()=>window.removeEventListener("keydown",h);},[modal,csOpen,cd,view]);
+    window.addEventListener("keydown",h);return()=>window.removeEventListener("keydown",h);},[modal,csOpen,settingsOpen,cd,view]);
 
   const hl=useMemo(()=>{
     if(view==="day")return`${DNF[cd.getDay()]}, ${MN2[cd.getMonth()]} ${cd.getDate()}, ${cd.getFullYear()}`;
-    if(view==="week"){const s=$w(cd),e=$a(s,6);
+    if(view==="week"){const s=$w(cd,settings.weekStart),e=$a(s,6);
       if(s.getMonth()===e.getMonth())return`${MN2[s.getMonth()]} ${s.getDate()}–${e.getDate()}, ${s.getFullYear()}`;
       return`${MN2[s.getMonth()]} ${s.getDate()} – ${MN2[e.getMonth()]} ${e.getDate()}, ${e.getFullYear()}`;}
     if(view==="month")return`${MN2[cd.getMonth()]} ${cd.getFullYear()}`;
     return`${cd.getFullYear()}`;
-  },[view,cd]);
+  },[view,cd,settings.weekStart]);
 
   const aE=(ev)=>{
     // Handle recurring
@@ -230,20 +251,24 @@ function App(){
 
   const saveCo=(nc,ns)=>{
     const oi=new Set(courses.map(c=>c.id));
-    let f=events.filter(e=>!e._courseId||!oi.has(e._courseId)).filter(e=>e.category!=="_academic");
+    let f=events.filter(e=>!e._courseId||!oi.has(e._courseId)).filter(e=>e.category!=="_academic"&&e.category!=="_holidays");
     const nc2={...BCAT};
     nc.forEach((c,i)=>{const ci=i%CC.length;nc2[c.id]={label:c.name,color:CC[ci].c,bg:CC[ci].b};});
     const gen=nc.flatMap(c=>genCourseEv(c,ns));
     const cal=PCAL[ns];
-    const ae=cal?cal.ev.map(e=>({id:gi(),title:e.t,date:e.d,category:"_academic",startHour:0,startMin:0,endHour:0,endMin:0,detail:"",_allDay:true})):[];
-    setCo(nc);setCats(nc2);setEv([...f,...gen,...ae]);setSem(ns);setCsOpen(false);
+    const ae=[];if(cal)cal.ev.forEach(e=>{
+      if(e.de){for(let d=$p(e.d);d<=$p(e.de);d=$a(d,1))ae.push({id:gi(),title:e.t,date:$d(d),category:"_academic",startHour:0,startMin:0,endHour:0,endMin:0,detail:"",_allDay:true,_multiDay:true,_mdStart:e.d,_mdEnd:e.de});
+      } else ae.push({id:gi(),title:e.t,date:e.d,category:"_academic",startHour:0,startMin:0,endHour:0,endMin:0,detail:"",_allDay:true});
+    });
+    const he=showHolidays?US_HOLIDAYS.map(e=>({id:gi(),title:e.t,date:e.d,category:"_holidays",startHour:0,startMin:0,endHour:0,endMin:0,detail:"",_allDay:true})):[];
+    setCo(nc);setCats(nc2);setEv([...f,...gen,...ae,...he]);setSem(ns);setCsOpen(false);
   };
 
   const MO="'DM Mono','SF Mono',monospace",SE="'DM Serif Display',Georgia,serif";
 
   // Time insights: hours per category this week
   const insights=useMemo(()=>{
-    const ws=$w(cd),we=$a(ws,6),wsd=$d(ws),wed=$d(we);
+    const ws=$w(cd,settings.weekStart),we=$a(ws,6),wsd=$d(ws),wed=$d(we);
     const bycat={};let total=0;
     events.filter(e=>e.date>=wsd&&e.date<=wed&&!e._allDay&&ac.has(e.category)).forEach(e=>{
       const hrs=((e.endHour+(e.endMin||0)/60)-(e.startHour+(e.startMin||0)/60));
@@ -280,6 +305,7 @@ function App(){
             fontFamily:MO,fontSize:"0.55rem",letterSpacing:"0.07em",textTransform:"uppercase",
             background:view===v?T.ac:"transparent",color:view===v?T.bg:T.t3}}>{v}</button>)}
         </div>
+        <button onClick={()=>setSettingsOpen(true)} style={{background:"transparent",border:`1px solid ${T.bd}`,color:T.t2,padding:"3px 6px",borderRadius:5,cursor:"pointer",fontSize:"0.8rem"}}>⚙</button>
         <div onClick={()=>setTheme(theme==="dark"?"light":"dark")} style={{display:"flex",alignItems:"center",gap:4,cursor:"pointer",userSelect:"none"}}>
           <span style={{fontFamily:MO,fontSize:"0.55rem",color:T.t3}}>{theme==="dark"?"☾":"☀"}</span>
           <div style={{width:30,height:16,background:T.b3,borderRadius:8,border:`1px solid ${T.bd}`,position:"relative"}}>
@@ -295,28 +321,32 @@ function App(){
         <div style={window.innerWidth<768?{position:"absolute",left:0,top:0,bottom:0,zIndex:50}:{}}>
           <Sidebar T={T} m={sbM} sm={setSbM} tasks={tasks} events={events} cats={cats}
             ac={ac} tC={tC} tT={tT} dT={dT} setModal={setModal} cd={cd} setCd={setCd}
-            mcM={mcM} setMcM={setMcM} MO={MO} SE={SE} insights={insights}/>
+            mcM={mcM} setMcM={setMcM} MO={MO} SE={SE} insights={insights}
+            showHolidays={showHolidays} setShowHolidays={setShowHolidays} weekStart={settings.weekStart}/>
         </div>
       </>}
       <div style={{flex:1,overflow:"hidden",position:"relative",display:"flex",flexDirection:"column"}}>
         {view==="day"&&<TG T={T} dates={[cd]} events={events} tasks={tasks} cats={cats} ac={ac}
           setModal={setModal} MO={MO} SE={SE} drag={drag} setDrag={setDrag}/>}
-        {view==="week"&&<TG T={T} dates={Array.from({length:7},(_,i)=>$a($w(cd),i))} events={events} tasks={tasks}
+        {view==="week"&&<TG T={T} dates={Array.from({length:7},(_,i)=>$a($w(cd,settings.weekStart),i))} events={events} tasks={tasks}
           cats={cats} ac={ac} setModal={setModal} MO={MO} SE={SE} drag={drag} setDrag={setDrag}/>}
         {view==="month"&&<MonV T={T} date={cd} events={events} tasks={tasks} cats={cats} ac={ac}
           setModal={setModal} MO={MO} SE={SE} setCd={setCd} setView={setView}/>}
         {view==="year"&&<YrV T={T} date={cd} events={events} tasks={tasks} MO={MO} SE={SE} setCd={setCd} setView={setView}/>}
       </div>
     </div>
-    {modal&&<EModal T={T} modal={modal} setModal={setModal} aE={aE} uE={uE} dE={dE} aT={aT} uT={uT} dT={dT} cats={cats} MO={MO} SE={SE}/>}
+    {modal&&modal.type!=="_catEdit"&&<EModal T={T} modal={modal} setModal={setModal} aE={aE} uE={uE} dE={dE} aT={aT} uT={uT} dT={dT} cats={cats} MO={MO} SE={SE}/>}
+    {modal&&modal.type==="_catEdit"&&<CatModal T={T} MO={MO} SE={SE} cats={cats} setCats={setCats} setModal={setModal}/>}
     {csOpen&&<CSModal T={T} MO={MO} SE={SE} courses={courses} sem={sem} onSave={saveCo} onClose={()=>setCsOpen(false)}/>}
+    {settingsOpen&&<SettingsModal T={T} MO={MO} SE={SE} settings={settings} setSettings={setSettings} onClose={()=>setSettingsOpen(false)}
+      events={events} cats={cats} onImport={(imported)=>setEv(p=>[...p,...imported])}/>}
   </div>;
 }
 
 // ═══ SIDEBAR ═══
-function Sidebar({T,m,sm,tasks,events,cats,ac,tC,tT,dT,setModal,cd,setCd,mcM,setMcM,MO,SE,insights}){
+function Sidebar({T,m,sm,tasks,events,cats,ac,tC,tT,dT,setModal,cd,setCd,mcM,setMcM,MO,SE,insights,showHolidays,setShowHolidays,weekStart=0}){
   const tf=tasks.filter(x=>ac.has(x.category)),dn=tf.filter(x=>x.done),pn=tf.filter(x=>!x.done);
-  const mcY=mcM.getFullYear(),mcMo=mcM.getMonth(),fd=new Date(mcY,mcMo,1).getDay(),dm=$m(mcY,mcMo);
+  const mcY=mcM.getFullYear(),mcMo=mcM.getMonth(),fd=(new Date(mcY,mcMo,1).getDay()-weekStart+7)%7,dm=$m(mcY,mcMo);
   const cells=[];for(let i=0;i<fd;i++)cells.push(null);for(let d=1;d<=dm;d++)cells.push(d);
 
   return <div style={{width:248,borderRight:`1px solid ${T.bd}`,background:T.b2,display:"flex",flexDirection:"column",overflow:"hidden",flexShrink:0}}>
@@ -328,7 +358,7 @@ function Sidebar({T,m,sm,tasks,events,cats,ac,tC,tT,dT,setModal,cd,setCd,mcM,set
         <button onClick={()=>setMcM(new Date(mcY,mcMo+1,1))} style={{background:"none",border:"none",color:T.t3,cursor:"pointer",fontSize:12}}>›</button>
       </div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:1,textAlign:"center"}}>
-        {DN.map(d=><div key={d} style={{fontFamily:MO,fontSize:"0.42rem",color:T.t3,padding:"1px 0"}}>{d[0]}</div>)}
+        {Array.from({length:7},(_,i)=>DN[(i+weekStart)%7]).map(d=><div key={d} style={{fontFamily:MO,fontSize:"0.42rem",color:T.t3,padding:"1px 0"}}>{d[0]}</div>)}
         {cells.map((day,i)=>{const it=day&&$td(new Date(mcY,mcMo,day)),is=day&&$s(new Date(mcY,mcMo,day),cd);
           return <div key={i} onClick={()=>day&&setCd(new Date(mcY,mcMo,day))} style={{
             fontSize:"0.62rem",padding:"2px 0",cursor:day?"pointer":"default",borderRadius:"50%",
@@ -343,6 +373,14 @@ function Sidebar({T,m,sm,tasks,events,cats,ac,tC,tT,dT,setModal,cd,setCd,mcM,set
         border:`1px solid ${c.color}`,color:c.color,background:c.bg,
         cursor:"pointer",letterSpacing:"0.03em",textTransform:"uppercase",
         opacity:ac.has(k)?1:0.25}}>{c.label}</span>)}
+      <span onClick={()=>setModal({type:"_catEdit"})} style={{fontFamily:MO,fontSize:"0.46rem",padding:"1px 5px",borderRadius:9,
+        border:`1px dashed ${T.bd}`,color:T.t3,cursor:"pointer",letterSpacing:"0.03em"}}>+</span>
+    </div>
+    {/* Holidays toggle */}
+    <div style={{padding:"2px 10px 4px",display:"flex",alignItems:"center",gap:5}}>
+      <div onClick={()=>setShowHolidays(!showHolidays)} style={{width:28,height:14,background:showHolidays?T.ac:T.b3,borderRadius:7,border:`1px solid ${T.bd}`,position:"relative",cursor:"pointer"}}>
+        <div style={{width:8,height:8,background:showHolidays?T.bg:T.t3,borderRadius:"50%",position:"absolute",top:2,left:showHolidays?16:3,transition:"left 0.2s"}}/></div>
+      <span style={{fontFamily:MO,fontSize:"0.44rem",color:T.t2,letterSpacing:"0.05em",textTransform:"uppercase"}}>US Holidays</span>
     </div>
     {/* Tabs */}
     <div style={{display:"flex",borderTop:`1px solid ${T.bd}`,borderBottom:`1px solid ${T.bd}`}}>
@@ -609,6 +647,166 @@ function CSModal({T,MO,SE,courses:ec,sem:es,onSave,onClose}){
       <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
         <button onClick={onClose} style={{padding:"6px 14px",borderRadius:6,border:"none",background:T.b3,color:T.t3,cursor:"pointer",fontSize:"0.78rem",fontWeight:500}}>Cancel</button>
         <button onClick={()=>{const v=cl.filter(c=>c.name.trim());onSave(v,sem);}} style={{padding:"6px 18px",borderRadius:6,border:"none",background:T.ac,color:T.bg,cursor:"pointer",fontSize:"0.78rem",fontWeight:600}}>Save &amp; Generate</button>
+      </div>
+    </div>
+  </div>;
+}
+
+// ═══ SETTINGS MODAL ═══
+const TIMEZONES=["America/New_York","America/Chicago","America/Denver","America/Los_Angeles","America/Anchorage","Pacific/Honolulu","America/Phoenix","Europe/London","Europe/Paris","Europe/Berlin","Asia/Tokyo","Asia/Shanghai","Asia/Kolkata","Australia/Sydney","UTC"];
+
+function exportICS(events,cats){
+  const lines=["BEGIN:VCALENDAR","VERSION:2.0","PRODID:-//TigerCalendar//EN","CALSCALE:GREGORIAN"];
+  events.filter(e=>!e._allDay||e.category!=="_academic").forEach(ev=>{
+    lines.push("BEGIN:VEVENT");
+    lines.push("UID:"+ev.id+"@tigercalendar");
+    const ds=ev.date.replace(/-/g,"");
+    if(ev._allDay){lines.push("DTSTART;VALUE=DATE:"+ds);lines.push("DTEND;VALUE=DATE:"+ds);}
+    else{lines.push("DTSTART:"+ds+"T"+String(ev.startHour).padStart(2,"0")+String(ev.startMin||0).padStart(2,"0")+"00");
+      lines.push("DTEND:"+ds+"T"+String(ev.endHour).padStart(2,"0")+String(ev.endMin||0).padStart(2,"0")+"00");}
+    lines.push("SUMMARY:"+(ev.title||"").replace(/\n/g,"\\n"));
+    if(ev.location)lines.push("LOCATION:"+ev.location.replace(/\n/g,"\\n"));
+    if(ev.detail)lines.push("DESCRIPTION:"+ev.detail.replace(/\n/g,"\\n"));
+    const cat=cats[ev.category];if(cat)lines.push("CATEGORIES:"+cat.label);
+    lines.push("END:VEVENT");
+  });
+  lines.push("END:VCALENDAR");
+  const blob=new Blob([lines.join("\r\n")],{type:"text/calendar"});
+  const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="tigercalendar.ics";a.click();URL.revokeObjectURL(a.href);
+}
+
+function parseICS(text){
+  const events=[];let cur=null;
+  text.split(/\r?\n/).forEach(line=>{
+    if(line==="BEGIN:VEVENT")cur={};
+    else if(line==="END:VEVENT"&&cur){
+      if(cur.title&&cur.date)events.push({id:gi(),title:cur.title,date:cur.date,category:"personal",
+        startHour:cur.startHour||0,startMin:cur.startMin||0,endHour:cur.endHour||0,endMin:cur.endMin||0,
+        detail:cur.detail||"",location:cur.location||"",_allDay:cur.allDay||false});
+      cur=null;
+    } else if(cur){
+      const[k,...v]=line.split(":");const val=v.join(":");
+      if(k==="SUMMARY")cur.title=val.replace(/\\n/g,"\n");
+      else if(k==="LOCATION")cur.location=val.replace(/\\n/g,"\n");
+      else if(k==="DESCRIPTION")cur.detail=val.replace(/\\n/g,"\n");
+      else if(k.startsWith("DTSTART")){
+        if(k.includes("VALUE=DATE")){cur.date=val.slice(0,4)+"-"+val.slice(4,6)+"-"+val.slice(6,8);cur.allDay=true;}
+        else{cur.date=val.slice(0,4)+"-"+val.slice(4,6)+"-"+val.slice(6,8);cur.startHour=+val.slice(9,11);cur.startMin=+val.slice(11,13);}
+      } else if(k.startsWith("DTEND")&&!k.includes("VALUE=DATE")){
+        cur.endHour=+val.slice(9,11);cur.endMin=+val.slice(11,13);
+      }
+    }
+  });
+  return events;
+}
+
+function SettingsModal({T,MO,SE,settings,setSettings,onClose,events,cats,onImport}){
+  const upS=(k,v)=>setSettings(p=>({...p,[k]:v}));
+  const IS={background:T.ib,border:`1px solid ${T.ibd}`,borderRadius:5,padding:"5px 8px",color:T.tx,fontFamily:"'DM Sans',sans-serif",fontSize:"0.78rem",outline:"none",WebkitAppearance:"none",cursor:"pointer",width:"100%"};
+  const fileRef=useRef(null);
+  const handleImport=(e)=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=(ev)=>{
+    const imported=parseICS(ev.target.result);if(imported.length>0){onImport(imported);alert(`Imported ${imported.length} events!`);}else alert("No events found in file.");
+  };r.readAsText(f);};
+
+  return <div onClick={onClose} style={{position:"fixed",inset:0,background:T.ov,zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+    <div onClick={e=>e.stopPropagation()} style={{background:T.mb,border:`1px solid ${T.bd}`,borderRadius:14,padding:20,width:"100%",maxWidth:400,maxHeight:"80vh",overflow:"auto",boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+      <div style={{fontFamily:SE,fontSize:"1.1rem",color:T.tx,marginBottom:14}}>Settings</div>
+      <div style={{marginBottom:10}}>
+        <label style={{fontFamily:MO,fontSize:"0.5rem",color:T.t3,letterSpacing:"0.08em",textTransform:"uppercase",display:"block",marginBottom:3}}>Week Starts On</label>
+        <select value={settings.weekStart} onChange={e=>upS("weekStart",+e.target.value)} style={IS}>
+          <option value={0}>Sunday</option><option value={1}>Monday</option><option value={6}>Saturday</option>
+        </select>
+      </div>
+      <div style={{marginBottom:10}}>
+        <label style={{fontFamily:MO,fontSize:"0.5rem",color:T.t3,letterSpacing:"0.08em",textTransform:"uppercase",display:"block",marginBottom:3}}>Time Format</label>
+        <select value={settings.hourFormat} onChange={e=>upS("hourFormat",e.target.value)} style={IS}>
+          <option value="12">12-hour (1:00 PM)</option><option value="24">24-hour (13:00)</option>
+        </select>
+      </div>
+      <div style={{marginBottom:12}}>
+        <label style={{fontFamily:MO,fontSize:"0.5rem",color:T.t3,letterSpacing:"0.08em",textTransform:"uppercase",display:"block",marginBottom:3}}>Timezone</label>
+        <select value={settings.timeZone} onChange={e=>upS("timeZone",e.target.value)} style={IS}>
+          {TIMEZONES.map(tz=><option key={tz} value={tz}>{tz.replace(/_/g," ")}</option>)}
+        </select>
+      </div>
+      {/* Import/Export */}
+      <div style={{borderTop:`1px solid ${T.bd}`,paddingTop:10,marginBottom:10}}>
+        <div style={{fontFamily:MO,fontSize:"0.5rem",color:T.t3,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:6}}>Import / Export</div>
+        <div style={{display:"flex",gap:6}}>
+          <button onClick={()=>exportICS(events,cats)} style={{flex:1,padding:"6px 0",borderRadius:5,border:`1px solid ${T.bd}`,background:"transparent",color:T.tx,cursor:"pointer",fontFamily:MO,fontSize:"0.6rem"}}>Export .ics</button>
+          <button onClick={()=>fileRef.current?.click()} style={{flex:1,padding:"6px 0",borderRadius:5,border:`1px solid ${T.bd}`,background:"transparent",color:T.tx,cursor:"pointer",fontFamily:MO,fontSize:"0.6rem"}}>Import .ics</button>
+          <input ref={fileRef} type="file" accept=".ics,.ical" onChange={handleImport} style={{display:"none"}}/>
+        </div>
+        <div style={{fontFamily:MO,fontSize:"0.42rem",color:T.t3,marginTop:4}}>ICS format — compatible with Google Calendar, Apple Calendar, Outlook</div>
+      </div>
+      <div style={{display:"flex",justifyContent:"flex-end"}}>
+        <button onClick={onClose} style={{padding:"5px 14px",borderRadius:6,border:"none",background:T.ac,color:T.bg,cursor:"pointer",fontSize:"0.76rem",fontWeight:600}}>Done</button>
+      </div>
+    </div>
+  </div>;
+}
+
+// ═══ CATEGORY EDITOR ═══
+const CAT_COLORS=["#c8b8ff","#8ecae6","#ff8c69","#69d4ff","#ff6fa0","#a8e06a","#ffd06a","#e88bff","#6affb4","#ff6b6b","#69ffd2","#f4845f","#b0b0c0"];
+function CatModal({T,MO,SE,cats,setCats,setModal}){
+  const FIXED=new Set(["personal","other","_academic","_holidays"]);
+  const custom=Object.entries(cats).filter(([k])=>!FIXED.has(k)&&!k.startsWith("id_"));
+  const[newName,setNewName]=useState("");
+  const[newColor,setNewColor]=useState(CAT_COLORS[0]);
+  const[editing,setEditing]=useState(null);
+  const[editLabel,setEditLabel]=useState("");
+
+  const addCat=()=>{if(!newName.trim())return;const id="cat_"+gi();
+    setCats(p=>({...p,[id]:{label:newName.trim(),color:newColor,bg:newColor.replace(")",",0.12)").replace("rgb","rgba").replace("#","")?`${newColor}1e`:newColor+"1e"}}));setNewName("");};
+  const delCat=(k)=>setCats(p=>{const n={...p};delete n[k];return n;});
+  const renameCat=(k)=>{if(!editLabel.trim())return;setCats(p=>({...p,[k]:{...p[k],label:editLabel.trim()}}));setEditing(null);};
+  const recolorCat=(k,c)=>setCats(p=>({...p,[k]:{...p[k],color:c,bg:c+"1e"}}));
+
+  return <div onClick={()=>setModal(null)} style={{position:"fixed",inset:0,background:T.ov,zIndex:100,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+    <div onClick={e=>e.stopPropagation()} style={{background:T.mb,border:`1px solid ${T.bd}`,borderRadius:14,padding:20,width:"100%",maxWidth:400,maxHeight:"80vh",overflow:"auto",boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+      <div style={{fontFamily:SE,fontSize:"1.1rem",color:T.tx,marginBottom:12}}>Edit Categories</div>
+      {/* Built-in */}
+      <div style={{marginBottom:10}}>
+        <div style={{fontFamily:MO,fontSize:"0.5rem",color:T.t3,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:4}}>Built-in</div>
+        {Object.entries(cats).filter(([k])=>FIXED.has(k)).map(([k,c])=>
+          <div key={k} style={{display:"flex",alignItems:"center",gap:6,padding:"3px 0"}}>
+            <div style={{width:10,height:10,borderRadius:"50%",background:c.color,flexShrink:0}}/>
+            <span style={{fontSize:"0.78rem",color:T.tx}}>{c.label}</span>
+            <span style={{fontSize:"0.48rem",color:T.t3,fontFamily:MO}}>(fixed)</span>
+          </div>)}
+      </div>
+      {/* Custom */}
+      <div style={{marginBottom:10}}>
+        <div style={{fontFamily:MO,fontSize:"0.5rem",color:T.t3,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:4}}>Custom</div>
+        {custom.length===0&&<div style={{fontSize:"0.7rem",color:T.t3,fontStyle:"italic"}}>No custom categories yet</div>}
+        {custom.map(([k,c])=>
+          <div key={k} style={{display:"flex",alignItems:"center",gap:6,padding:"3px 0"}}>
+            <div style={{width:10,height:10,borderRadius:"50%",background:c.color,flexShrink:0,cursor:"pointer"}} onClick={()=>{const ci=CAT_COLORS.indexOf(c.color);recolorCat(k,CAT_COLORS[(ci+1)%CAT_COLORS.length]);}}/>
+            {editing===k?<>
+              <input value={editLabel} onChange={e=>setEditLabel(e.target.value)} onKeyDown={e=>e.key==="Enter"&&renameCat(k)} autoFocus
+                style={{flex:1,background:T.ib,border:`1px solid ${T.ibd}`,borderRadius:4,padding:"2px 6px",color:T.tx,fontSize:"0.78rem",outline:"none"}}/>
+              <button onClick={()=>renameCat(k)} style={{background:"none",border:"none",color:T.ac,cursor:"pointer",fontSize:"0.7rem"}}>Save</button>
+            </>:<>
+              <span style={{flex:1,fontSize:"0.78rem",color:T.tx,cursor:"pointer"}} onClick={()=>{setEditing(k);setEditLabel(c.label);}}>{c.label}</span>
+              <button onClick={()=>{setEditing(k);setEditLabel(c.label);}} style={{background:"none",border:"none",color:T.t3,cursor:"pointer",fontSize:"0.6rem"}}>Edit</button>
+              <button onClick={()=>delCat(k)} style={{background:"none",border:"none",color:T.dg,cursor:"pointer",fontSize:"0.6rem"}}>Delete</button>
+            </>}
+          </div>)}
+      </div>
+      {/* Add new */}
+      <div style={{borderTop:`1px solid ${T.bd}`,paddingTop:8}}>
+        <div style={{fontFamily:MO,fontSize:"0.5rem",color:T.t3,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:4}}>Add New</div>
+        <div style={{display:"flex",gap:6,alignItems:"center"}}>
+          <input value={newName} onChange={e=>setNewName(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addCat()} placeholder="Category name"
+            style={{flex:1,background:T.ib,border:`1px solid ${T.ibd}`,borderRadius:5,padding:"5px 8px",color:T.tx,fontSize:"0.78rem",outline:"none"}}/>
+          <div style={{display:"flex",gap:2}}>
+            {CAT_COLORS.slice(0,6).map(c=><div key={c} onClick={()=>setNewColor(c)} style={{width:14,height:14,borderRadius:"50%",background:c,cursor:"pointer",border:newColor===c?`2px solid ${T.tx}`:"2px solid transparent"}}/>)}
+          </div>
+          <button onClick={addCat} style={{padding:"4px 10px",borderRadius:5,border:"none",background:T.ac,color:T.bg,cursor:"pointer",fontSize:"0.72rem",fontWeight:600}}>Add</button>
+        </div>
+      </div>
+      <div style={{marginTop:12,display:"flex",justifyContent:"flex-end"}}>
+        <button onClick={()=>setModal(null)} style={{padding:"5px 14px",borderRadius:6,border:"none",background:T.b3,color:T.t3,cursor:"pointer",fontSize:"0.76rem"}}>Done</button>
       </div>
     </div>
   </div>;
