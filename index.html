@@ -29,6 +29,37 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+<!-- Firebase SDKs (compat mode for simplicity with Babel) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script>
+// ═══ FIREBASE CONFIG ═══
+// To enable Google sign-in & cloud sync:
+// 1. Go to https://console.firebase.google.com → Create project
+// 2. Enable Authentication → Sign-in method → Google
+// 3. Enable Cloud Firestore → Create database (start in test mode)
+// 4. Go to Project Settings → Your apps → Web → Register app
+// 5. Copy your config object below and set FIREBASE_ENABLED = true
+var FIREBASE_ENABLED = false;
+var FB_APP = null, FB_AUTH = null, FB_DB = null;
+try {
+  var firebaseConfig = {
+    apiKey: "YOUR_API_KEY",
+    authDomain: "YOUR_PROJECT.firebaseapp.com",
+    projectId: "YOUR_PROJECT_ID",
+    storageBucket: "YOUR_PROJECT.appspot.com",
+    messagingSenderId: "YOUR_SENDER_ID",
+    appId: "YOUR_APP_ID"
+  };
+  if (FIREBASE_ENABLED && firebaseConfig.apiKey !== "YOUR_API_KEY") {
+    FB_APP = firebase.initializeApp(firebaseConfig);
+    FB_AUTH = firebase.auth();
+    FB_DB = firebase.firestore();
+    FB_DB.enablePersistence({synchronizeTabs: true}).catch(function(){});
+  }
+} catch(e) { console.warn("Firebase init failed:", e); }
+</script>
 <script type="text/babel" data-type="module">
 const {useState,useEffect,useRef,useCallback,useMemo}=React;
 const HOURS=Array.from({length:24},(_,i)=>i);
@@ -167,9 +198,91 @@ function genCourseEv(course,sem){
 function ld(){try{const r=localStorage.getItem(SK);if(r)return JSON.parse(r);}catch(e){}return null;}
 function sv(d){try{localStorage.setItem(SK,JSON.stringify(d));}catch(e){}}
 
+// ═══ FIREBASE AUTH & SYNC HOOKS ═══
+function useFirebaseAuth(){
+  const[user,setUser]=useState(null);
+  const[loading,setLoading]=useState(!!FB_AUTH);
+  useEffect(()=>{if(!FB_AUTH){setLoading(false);return;}
+    const unsub=FB_AUTH.onAuthStateChanged(u=>{setUser(u);setLoading(false);});
+    return unsub;
+  },[]);
+  const signIn=async()=>{if(!FB_AUTH)return;const provider=new firebase.auth.GoogleAuthProvider();
+    try{await FB_AUTH.signInWithPopup(provider);}catch(e){if(e.code==="auth/popup-blocked")await FB_AUTH.signInWithRedirect(provider);}};
+  const signOut=async()=>{if(FB_AUTH)await FB_AUTH.signOut();};
+  return{user,loading,signIn,signOut};
+}
+
+function useFirestoreSync(user,localData,setters){
+  const syncRef=useRef(false);
+  const debounceRef=useRef(null);
+
+  // Download from Firestore when user signs in
+  useEffect(()=>{if(!FB_DB||!user)return;
+    const docRef=FB_DB.collection("calendars").doc(user.uid);
+    docRef.get().then(snap=>{
+      if(snap.exists){
+        const cloud=snap.data();
+        syncRef.current=true;
+        if(cloud.events)setters.setEv(cloud.events);
+        if(cloud.tasks)setters.setTk(cloud.tasks);
+        if(cloud.courses)setters.setCo(cloud.courses);
+        if(cloud.cats)setters.setCats(cloud.cats);
+        if(cloud.sem)setters.setSem(cloud.sem);
+        if(cloud.theme)setters.setTheme(cloud.theme);
+        if(cloud.settings)setters.setSettings(cloud.settings);
+        if(cloud.exams)setters.setExams(cloud.exams);
+        if(cloud.assignments)setters.setAssignments(cloud.assignments);
+        if(cloud.showHolidays!==undefined)setters.setShowHolidays(cloud.showHolidays);
+        // Also save to localStorage as cache
+        sv(cloud);
+        setTimeout(()=>{syncRef.current=false;},500);
+      } else {
+        // First sign-in: upload local data to cloud
+        uploadToFirestore(user.uid,localData);
+      }
+    }).catch(e=>console.warn("Firestore read error:",e));
+
+    // Listen for real-time changes from other devices
+    const unsub=docRef.onSnapshot(snap=>{
+      if(!snap.exists||syncRef.current)return;
+      const cloud=snap.data();
+      if(!cloud._ts)return;
+      const localTs=localData._ts||0;
+      if(cloud._ts>localTs){
+        syncRef.current=true;
+        if(cloud.events)setters.setEv(cloud.events);
+        if(cloud.tasks)setters.setTk(cloud.tasks);
+        if(cloud.courses)setters.setCo(cloud.courses);
+        if(cloud.cats)setters.setCats(cloud.cats);
+        if(cloud.exams)setters.setExams(cloud.exams);
+        if(cloud.assignments)setters.setAssignments(cloud.assignments);
+        sv(cloud);
+        setTimeout(()=>{syncRef.current=false;},500);
+      }
+    });
+    return unsub;
+  },[user]);
+
+  // Upload to Firestore when local data changes (debounced)
+  const upload=useCallback((data)=>{
+    if(!FB_DB||!user||syncRef.current)return;
+    clearTimeout(debounceRef.current);
+    debounceRef.current=setTimeout(()=>{uploadToFirestore(user.uid,data);},2000);
+  },[user]);
+
+  return{upload,isSyncing:syncRef};
+}
+
+function uploadToFirestore(uid,data){
+  if(!FB_DB||!uid)return;
+  const clean={...data,_ts:Date.now()};
+  FB_DB.collection("calendars").doc(uid).set(clean,{merge:true}).catch(e=>console.warn("Firestore write error:",e));
+}
+
 // ═══ MAIN ═══
 function App(){
   const saved=useMemo(()=>ld(),[]);
+  const{user,loading:authLoading,signIn,signOut}=useFirebaseAuth();
   const[theme,setTheme]=useState(saved?.theme||"light");
   const[view,setView]=useState(()=>window.innerWidth<768?"day":"week");
   const[sbM,setSbM]=useState("both");
@@ -197,8 +310,15 @@ function App(){
     window.addEventListener("resize",onResize);return()=>window.removeEventListener("resize",onResize);
   },[]);
 
+  const syncSetters=useMemo(()=>({setEv,setTk:setTk,setCo,setCats,setSem,setTheme,setSettings,setExams,setAssignments,setShowHolidays}),[]);
+  const{upload}=useFirestoreSync(user,{events,tasks,courses,cats,sem,theme,showHolidays,settings,exams,assignments},syncSetters);
+
   useEffect(()=>{setAc(p=>{const n=new Set(p);Object.keys(cats).forEach(k=>n.add(k));n.add("_holidays");return n;});},[cats]);
-  useEffect(()=>{sv({events,tasks,courses,cats,sem,theme,showHolidays,settings,exams,assignments});},[events,tasks,courses,cats,sem,theme,showHolidays,settings,exams,assignments]);
+  useEffect(()=>{
+    const data={events,tasks,courses,cats,sem,theme,showHolidays,settings,exams,assignments};
+    sv(data);
+    if(user)upload(data);
+  },[events,tasks,courses,cats,sem,theme,showHolidays,settings,exams,assignments,user]);
 
   useEffect(()=>{const cal=PCAL[sem];if(!cal)return;
     setEv(p=>{const na=p.filter(e=>e.category!=="_academic"&&e.category!=="_holidays");
@@ -330,6 +450,15 @@ function App(){
             <div style={{width:10,height:10,background:T.ac,borderRadius:"50%",position:"absolute",top:2,left:theme==="dark"?3:17,transition:"left 0.3s"}}/>
           </div>
         </div>
+        {/* Auth */}
+        {FB_AUTH&&(user?
+          <div style={{display:"flex",alignItems:"center",gap:5,cursor:"pointer",position:"relative"}} onClick={()=>setModal({type:"_account"})}>
+            {user.photoURL?<img src={user.photoURL} alt="" style={{width:22,height:22,borderRadius:"50%",border:`2px solid ${T.ac}`}}/>:
+              <div style={{width:22,height:22,borderRadius:"50%",background:T.ac,display:"flex",alignItems:"center",justifyContent:"center",fontSize:"0.55rem",color:T.bg,fontWeight:700}}>
+                {(user.displayName||user.email||"U")[0].toUpperCase()}</div>}
+          </div>:
+          <button onClick={signIn} style={{background:T.ac,border:"none",color:T.bg,padding:"3px 10px",borderRadius:5,cursor:"pointer",fontFamily:MO,fontSize:"0.52rem",fontWeight:600,letterSpacing:"0.03em"}}>
+            Sign in</button>)}
       </div>
     </div>
 
@@ -353,7 +482,8 @@ function App(){
         {view==="year"&&<YrV T={T} date={cd} events={events} tasks={tasks} MO={MO} SE={SE} setCd={setCd} setView={setView}/>}
       </div>
     </div>
-    {modal&&modal.type!=="_catEdit"&&<EModal T={T} modal={modal} setModal={setModal} aE={aE} uE={uE} dE={dE} aT={aT} uT={uT} dT={dT} cats={cats} MO={MO} SE={SE}/>}
+    {modal&&modal.type!=="_catEdit"&&modal.type!=="_account"&&<EModal T={T} modal={modal} setModal={setModal} aE={aE} uE={uE} dE={dE} aT={aT} uT={uT} dT={dT} cats={cats} MO={MO} SE={SE}/>}
+    {modal&&modal.type==="_account"&&user&&<AccountModal T={T} MO={MO} SE={SE} user={user} signOut={signOut} setModal={setModal}/>}
     {modal&&modal.type==="_catEdit"&&<CatModal T={T} MO={MO} SE={SE} cats={cats} setCats={setCats} setModal={setModal}/>}
     {csOpen&&<CSModal T={T} MO={MO} SE={SE} courses={courses} sem={sem} onSave={saveCo} onClose={()=>setCsOpen(false)}/>}
     {settingsOpen&&<SettingsModal T={T} MO={MO} SE={SE} settings={settings} setSettings={setSettings} onClose={()=>setSettingsOpen(false)}
@@ -682,6 +812,25 @@ function CSModal({T,MO,SE,courses:ec,sem:es,onSave,onClose}){
       <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
         <button onClick={onClose} style={{padding:"6px 14px",borderRadius:6,border:"none",background:T.b3,color:T.t3,cursor:"pointer",fontSize:"0.78rem",fontWeight:500}}>Cancel</button>
         <button onClick={()=>{const v=cl.filter(c=>c.name.trim());onSave(v,sem);}} style={{padding:"6px 18px",borderRadius:6,border:"none",background:T.ac,color:T.bg,cursor:"pointer",fontSize:"0.78rem",fontWeight:600}}>Save &amp; Generate</button>
+      </div>
+    </div>
+  </div>;
+}
+
+// ═══ ACCOUNT MODAL ═══
+function AccountModal({T,MO,SE,user,signOut,setModal}){
+  const handleSignOut=async()=>{await signOut();setModal(null);};
+  return <div onClick={()=>setModal(null)} style={{position:"fixed",inset:0,background:T.ov,zIndex:100,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+    <div onClick={e=>e.stopPropagation()} style={{background:T.mb,border:`1px solid ${T.bd}`,borderRadius:14,padding:24,width:"100%",maxWidth:340,boxShadow:"0 20px 60px rgba(0,0,0,0.3)",textAlign:"center"}}>
+      <div style={{fontFamily:SE,fontSize:"1.1rem",color:T.tx,marginBottom:14}}>Account</div>
+      {user.photoURL&&<img src={user.photoURL} alt="" style={{width:56,height:56,borderRadius:"50%",border:`3px solid ${T.ac}`,marginBottom:8}}/>}
+      <div style={{fontSize:"0.88rem",color:T.tx,fontWeight:600,marginBottom:2}}>{user.displayName||"User"}</div>
+      <div style={{fontSize:"0.7rem",color:T.t2,marginBottom:4}}>{user.email}</div>
+      <div style={{fontFamily:MO,fontSize:"0.46rem",color:T.ac,background:`${T.ac}15`,padding:"3px 8px",borderRadius:4,display:"inline-block",marginBottom:14}}>
+        Syncing across devices</div>
+      <div style={{display:"flex",gap:8,justifyContent:"center"}}>
+        <button onClick={()=>setModal(null)} style={{padding:"6px 16px",borderRadius:6,border:"none",background:T.b3,color:T.t3,cursor:"pointer",fontSize:"0.76rem"}}>Close</button>
+        <button onClick={handleSignOut} style={{padding:"6px 16px",borderRadius:6,border:`1px solid ${T.dg}`,background:"transparent",color:T.dg,cursor:"pointer",fontSize:"0.76rem",fontWeight:500}}>Sign Out</button>
       </div>
     </div>
   </div>;
