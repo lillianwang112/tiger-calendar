@@ -1055,14 +1055,14 @@ function App(){
           <button onClick={()=>setViewOpen(p=>!p)} style={{display:"flex",alignItems:"center",gap:5,padding:"3px 10px",
             background:T.b3,border:`1px solid ${T.bd}`,borderRadius:6,cursor:"pointer",
             fontFamily:MO,fontSize:"0.55rem",letterSpacing:"0.07em",textTransform:"uppercase",color:T.tx}}>
-            {view==="semester"?"Semester":view}
+            {view==="semester"?"Semester":view==="tasks-dashboard"?"Tasks":view}
             <span style={{fontSize:"0.45rem",color:T.t3,marginLeft:2}}>{viewOpen?"▲":"▼"}</span>
           </button>
           {viewOpen&&<>
             <div onClick={()=>setViewOpen(false)} style={{position:"fixed",inset:0,zIndex:98}}/>
             <div style={{position:"absolute",top:"100%",left:0,marginTop:4,background:T.mb,border:`1px solid ${T.bd}`,
               borderRadius:8,boxShadow:"0 8px 24px rgba(0,0,0,0.18)",zIndex:99,overflow:"hidden",minWidth:140}}>
-              {[["day","Day","D"],["week","Week","W"],["month","Month","M"],["year","Year","Y"],["schedule","Schedule","S"],["semester","Semester",""]].map(([k,label,shortcut])=>
+              {[["day","Day","D"],["week","Week","W"],["month","Month","M"],["year","Year","Y"],["schedule","Schedule","S"],["semester","Semester",""],["tasks-dashboard","Tasks",""]].map(([k,label,shortcut])=>
                 <div key={k} onClick={()=>{setView(k);setViewOpen(false);}}
                   style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"7px 12px",cursor:"pointer",
                     background:view===k?`${T.ac}18`:"transparent",
@@ -1189,6 +1189,7 @@ function App(){
           {view==="year"&&<YrV T={T} date={cd} events={allEvents} tasks={tasks} MO={MO} SE={SE} setCd={setCd} setView={setView}/>}
           {view==="schedule"&&<SchedV T={T} date={cd} events={allEvents} tasks={tasks} cats={cats} ac={ac} setModal={setModal} MO={MO} SE={SE} setCd={setCd}/>}
           {view==="semester"&&<SemV T={T} sem={sem} events={allEvents} tasks={tasks} exams={exams} assignments={assignments} courses={courses} cats={cats} ac={ac} setModal={setModal} MO={MO} SE={SE} setCd={setCd} setView={setView}/>}
+          {view==="tasks-dashboard"&&<TasksDashboard T={T} MO={MO} SE={SE} tasks={tasks} cats={cats} courses={courses} aT={aT} uT={uT} dT={dT} tT={tT} pushUndo={pushUndo}/>}
         </>}
       </div>
     </div>
@@ -3217,6 +3218,534 @@ function EModal({T,modal,setModal,aE,uE,dE,dSB,aT,uT,dT,cats,MO,SE}){
         </div>
       </div>
     </div>
+  </div>;
+}
+
+// ═══ TASKS DASHBOARD ═══
+const DASH_CATS_DEFAULT=[
+  {key:"admin",    label:"Admin",    color:"#f59e0b"},
+  {key:"personal", label:"Personal", color:"#8b5cf6"},
+  {key:"social",   label:"Social",   color:"#10b981"},
+  {key:"other",    label:"Other",    color:"#6b7280"},
+];
+const TC_DASHCATS_KEY="tc_dashCats_v1";
+const EST_OPTS=["","15 min","30 min","45 min","1 hr","1.5 hr","2 hr","3 hr","4+ hr"];
+
+function hexToRgba(hex,a){
+  const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);
+  return`rgba(${r},${g},${b},${a})`;
+}
+
+function TasksDashboard({T,MO,SE,tasks,cats,courses,aT,uT,dT,tT,pushUndo}){
+  // ── Persisted custom categories (excludes "coursework" which is always built-in) ──
+  const[dashCats,setDashCats]=useState(()=>{
+    try{const s=localStorage.getItem(TC_DASHCATS_KEY);if(s)return JSON.parse(s);}catch(e){}
+    return DASH_CATS_DEFAULT;
+  });
+  useEffect(()=>{try{localStorage.setItem(TC_DASHCATS_KEY,JSON.stringify(dashCats));}catch(e){}}, [dashCats]);
+
+  // ── UI state ──
+  const[filter,setFilter]=useState("all");
+  const[courseFilter,setCourseFilter]=useState("all");
+  const[showDone,setShowDone]=useState(false);
+  const[editModal,setEditModal]=useState(null);
+  const[addOpen,setAddOpen]=useState(false);
+  const[catMgrOpen,setCatMgrOpen]=useState(false);
+  // cat manager internal state
+  const[cmEditing,setCmEditing]=useState(null);   // key of cat being edited, or null
+  const[cmLabel,setCmLabel]=useState("");
+  const[cmColor,setCmColor]=useState("#6b7280");
+  const[cmAddLabel,setCmAddLabel]=useState("");
+  const[cmAddColor,setCmAddColor]=useState("#3b82f6");
+  const[cmDelConfirm,setCmDelConfirm]=useState(null); // key pending delete confirm
+
+  // new task form
+  const[nTitle,setNTitle]=useState("");
+  const[nDue,setNDue]=useState("");
+  const[nCat,setNCat]=useState(dashCats[0]?.key||"other");
+  const[nCourse,setNCourse]=useState("");
+  const[nUrgent,setNUrgent]=useState(false);
+  const[nEst,setNEst]=useState("");
+  const[nNote,setNNote]=useState("");
+  // edit task form
+  const[eTitle,setETitle]=useState("");
+  const[eDue,setEDue]=useState("");
+  const[eCat,setECat]=useState(dashCats[0]?.key||"other");
+  const[eCourse,setECourse]=useState("");
+  const[eUrgent,setEUrgent]=useState(false);
+  const[eEst,setEEst]=useState("");
+  const[eNote,setENote]=useState("");
+
+  const allDash=useMemo(()=>tasks,[tasks]);
+  const total=allDash.length;
+  const doneCount=allDash.filter(t=>t.done).length;
+  const pct=total?Math.round(doneCount/total*100):0;
+
+  // All selectable categories for forms: coursework + custom dashCats
+  const allCatOpts=useMemo(()=>[
+    {key:"coursework",label:"Coursework",color:T.ac,_builtin:true},
+    ...dashCats,
+  ],[dashCats,T.ac]);
+
+  // ── Helpers to resolve a task's display color/bg/label ──
+  const courseIds=useMemo(()=>new Set((courses||[]).map(c=>c.id)),[courses]);
+
+  const resolveColor=(tk)=>{
+    // course task → use TigerCalendar cats map
+    if(courseIds.has(tk.category)){const c=cats[tk.category];return c?c.color:T.ac;}
+    // custom dash category
+    const dc=dashCats.find(d=>d.key===tk._dashCat||d.key===tk.category);
+    if(dc)return dc.color;
+    // fallback to cats map
+    const c=cats[tk.category];return c?c.color:T.t3;
+  };
+  const resolveBg=(tk)=>{const col=resolveColor(tk);return hexToRgba(col,0.12);};
+  const resolveLabel=(tk)=>{
+    const co=(courses||[]).find(c=>c.id===tk.category);if(co)return co.name;
+    const dc=dashCats.find(d=>d.key===(tk._dashCat||tk.category));if(dc)return dc.label;
+    return tk._dashCat||tk.category||"other";
+  };
+
+  // ── Filtering ──
+  const filtered=useMemo(()=>{
+    let ts=allDash;
+    if(filter==="coursework"){
+      ts=ts.filter(t=>courseIds.has(t.category));
+      if(courseFilter!=="all")ts=ts.filter(t=>t.category===courseFilter);
+    } else if(filter!=="all"){
+      ts=ts.filter(t=>t._dashCat===filter||(!courseIds.has(t.category)&&t.category===filter));
+    }
+    return ts;
+  },[allDash,filter,courseFilter,courseIds]);
+
+  const urgent=filtered.filter(t=>t._urgent&&!t.done);
+  const normal=filtered.filter(t=>!t._urgent&&!t.done);
+  const done=filtered.filter(t=>t.done);
+
+  const estMap={"15 min":0.25,"30 min":0.5,"45 min":0.75,"1 hr":1,"1.5 hr":1.5,"2 hr":2,"3 hr":3,"4+ hr":4};
+  const totalEst=[...urgent,...normal].reduce((s,t)=>s+(estMap[t._est]||0),0);
+
+  // ── Task CRUD ──
+  const resolveCatVal=(dashCatKey,courseId)=>{
+    if(dashCatKey==="coursework")return courseId||"other";
+    return dashCatKey;
+  };
+  const openEdit=(tk)=>{
+    setETitle(tk.title);setEDue(tk.date||"");
+    setECat(tk._dashCat||(courseIds.has(tk.category)?"coursework":dashCats[0]?.key||"other"));
+    setECourse(tk.category||(courses&&courses[0]?.id)||"");
+    setEUrgent(!!tk._urgent);setEEst(tk._est||"");setENote(tk.detail||"");
+    setEditModal(tk);
+  };
+  const closeEdit=()=>setEditModal(null);
+  const saveEdit=()=>{
+    if(!editModal||!eTitle.trim())return;
+    uT(editModal.id,{title:eTitle.trim(),date:eDue||undefined,
+      category:resolveCatVal(eCat,eCourse),_dashCat:eCat,_urgent:eUrgent,_est:eEst,detail:eNote});
+    closeEdit();
+  };
+  const addTask=()=>{
+    if(!nTitle.trim())return;
+    aT({title:nTitle.trim(),date:nDue||undefined,
+      category:resolveCatVal(nCat,nCourse),_dashCat:nCat,_urgent:nUrgent,_est:nEst,detail:nNote,done:false});
+    setNTitle("");setNDue("");setNUrgent(false);setNEst("");setNNote("");setAddOpen(false);
+  };
+
+  // ── Category manager actions ──
+  const cmStartEdit=(dc)=>{setCmEditing(dc.key);setCmLabel(dc.label);setCmColor(dc.color);setCmDelConfirm(null);};
+  const cmSaveEdit=()=>{
+    if(!cmLabel.trim())return;
+    setDashCats(p=>p.map(d=>d.key===cmEditing?{...d,label:cmLabel.trim(),color:cmColor}:d));
+    // also retag tasks if label changed (key stays same, so colors just update live)
+    setCmEditing(null);
+  };
+  const cmCancelEdit=()=>setCmEditing(null);
+  const cmAddCat=()=>{
+    if(!cmAddLabel.trim())return;
+    const key="dc_"+Math.random().toString(36).slice(2,8);
+    setDashCats(p=>[...p,{key,label:cmAddLabel.trim(),color:cmAddColor}]);
+    setCmAddLabel("");setCmAddColor("#3b82f6");
+  };
+  const cmDeleteCat=(key)=>{
+    // reassign tasks in that cat to "other"
+    tasks.filter(t=>t._dashCat===key).forEach(t=>uT(t.id,{_dashCat:"other",category:"other"}));
+    setDashCats(p=>p.filter(d=>d.key!==key));
+    if(filter===key)setFilter("all");
+    setCmDelConfirm(null);setCmEditing(null);
+  };
+
+  // ── Filter tabs (dynamic) ──
+  const filterTabs=useMemo(()=>{
+    const courseCount=allDash.filter(t=>!t.done&&courseIds.has(t.category)).length;
+    const tabs=[{key:"all",label:"All",color:T.ac,count:allDash.filter(t=>!t.done).length},
+      {key:"coursework",label:"Coursework",color:T.ac,count:courseCount}];
+    dashCats.forEach(dc=>{
+      const count=allDash.filter(t=>!t.done&&(t._dashCat===dc.key||(!courseIds.has(t.category)&&t.category===dc.key))).length;
+      tabs.push({key:dc.key,label:dc.label,color:dc.color,count});
+    });
+    return tabs;
+  },[allDash,dashCats,courseIds,T.ac]);
+
+  // ── Shared style helpers ──
+  const FieldLabel=({children})=><div style={{fontFamily:MO,fontSize:"0.5rem",fontWeight:600,letterSpacing:"0.07em",
+    textTransform:"uppercase",color:T.t2,marginBottom:4}}>{children}</div>;
+  const IS2={width:"100%",padding:"7px 10px",borderRadius:6,border:`1px solid ${T.bd}`,
+    background:T.ib,color:T.tx,fontSize:"0.78rem",fontFamily:"'DM Sans',sans-serif",outline:"none",boxSizing:"border-box"};
+  const UrgToggle=({val,set})=><label style={{display:"flex",alignItems:"center",gap:7,cursor:"pointer",
+    fontFamily:MO,fontSize:"0.52rem",color:T.t2,userSelect:"none"}}>
+    <div onClick={()=>set(p=>!p)} style={{width:28,height:15,background:val?T.dg:T.b2,borderRadius:8,
+      border:`1px solid ${val?T.dg:T.bd}`,position:"relative",cursor:"pointer",flexShrink:0,transition:"all 0.2s"}}>
+      <div style={{width:9,height:9,background:val?T.bg:T.t3,borderRadius:"50%",position:"absolute",top:2,
+        left:val?16:3,transition:"left 0.2s"}}/></div>
+    Mark as urgent</label>;
+
+  const CatSelect=({val,set,courses,showCourse,courseVal,setCourse})=><>
+    <div style={{flex:"1 1 130px"}}>
+      <FieldLabel>Category</FieldLabel>
+      <select value={val} onChange={e=>set(e.target.value)} style={IS2}>
+        {allCatOpts.map(o=><option key={o.key} value={o.key}>{o.label}</option>)}
+      </select>
+    </div>
+    {val==="coursework"&&courses&&courses.length>0&&<div style={{flex:"1 1 130px"}}>
+      <FieldLabel>Course</FieldLabel>
+      <select value={courseVal} onChange={e=>setCourse(e.target.value)} style={IS2}>
+        {courses.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+      </select>
+    </div>}
+  </>;
+
+  // ── Task Row ──
+  const TaskRow=({tk})=>{
+    const cc=resolveColor(tk),cb=resolveBg(tk),cl=resolveLabel(tk);
+    return <div style={{display:"flex",alignItems:"flex-start",gap:10,padding:"10px 14px",
+      background:T.b3,border:`1px solid ${T.bd}`,
+      borderLeft:tk._urgent&&!tk.done?`3px solid ${T.dg}`:`1px solid ${T.bd}`,
+      borderRadius:8,opacity:tk.done?0.45:1,transition:"background 0.12s"}}
+      onMouseEnter={e=>e.currentTarget.style.background=T.b2}
+      onMouseLeave={e=>e.currentTarget.style.background=T.b3}>
+      <div onClick={()=>tT(tk.id)} style={{width:16,height:16,borderRadius:4,border:`1.5px solid ${cc}`,
+        background:tk.done?cc:"transparent",flexShrink:0,marginTop:1,cursor:"pointer",
+        display:"flex",alignItems:"center",justifyContent:"center",transition:"all 0.15s"}}>
+        {tk.done&&<span style={{color:"#fff",fontSize:"0.5rem",lineHeight:1}}>✓</span>}
+      </div>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{fontSize:"0.78rem",fontWeight:500,lineHeight:1.35,color:T.tx,
+          textDecoration:tk.done?"line-through":"none",marginBottom:3}}>{tk.title}</div>
+        <div style={{display:"flex",gap:5,alignItems:"center",flexWrap:"wrap"}}>
+          <span style={{fontFamily:MO,fontSize:"0.46rem",padding:"2px 7px",borderRadius:10,
+            background:cb,color:cc,border:`1px solid ${hexToRgba(cc,0.25)}`,letterSpacing:"0.03em"}}>{cl}</span>
+          {tk._urgent&&!tk.done&&<span style={{fontFamily:MO,fontSize:"0.44rem",padding:"2px 6px",borderRadius:10,
+            background:hexToRgba(T.dg,0.12),color:T.dg,border:`1px solid ${hexToRgba(T.dg,0.25)}`}}>urgent</span>}
+          {tk._est&&<span style={{fontFamily:MO,fontSize:"0.44rem",color:T.t3}}>⏱ {tk._est}</span>}
+          {tk.date&&<span style={{fontFamily:MO,fontSize:"0.44rem",color:T.t2}}>📅 {tk.date}</span>}
+          {tk.detail&&<span style={{fontFamily:MO,fontSize:"0.44rem",color:T.t3,overflow:"hidden",
+            textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:180}}>{tk.detail}</span>}
+        </div>
+      </div>
+      <div style={{display:"flex",gap:3,flexShrink:0,marginTop:1}}>
+        <button onClick={()=>openEdit(tk)} title="Edit" style={{background:"none",border:"none",cursor:"pointer",
+          color:T.t3,fontSize:"0.75rem",padding:"2px 4px",borderRadius:4,lineHeight:1}}>✎</button>
+        <button onClick={()=>{pushUndo();dT(tk.id);}} title="Delete" style={{background:"none",border:"none",cursor:"pointer",
+          color:T.t3,fontSize:"0.72rem",padding:"2px 4px",borderRadius:4,lineHeight:1}}>✕</button>
+      </div>
+    </div>;
+  };
+
+  const Section=({label,items,accent})=>{
+    if(!items.length)return null;
+    return <div style={{marginBottom:4}}>
+      <div style={{fontFamily:MO,fontSize:"0.48rem",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.08em",
+        color:accent||T.t3,padding:"10px 0 4px",display:"flex",alignItems:"center",gap:5}}>
+        {accent&&<div style={{width:6,height:6,borderRadius:"50%",background:accent,flexShrink:0}}/>}
+        {label}<span style={{color:T.t3,fontWeight:400,marginLeft:2}}>{items.length}</span>
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:4}}>
+        {items.map(tk=><TaskRow key={tk.id} tk={tk}/>)}
+      </div>
+    </div>;
+  };
+
+  // ── Category Manager Modal ──
+  const CatMgrModal=()=><div onClick={e=>{if(e.target===e.currentTarget){setCatMgrOpen(false);setCmEditing(null);setCmDelConfirm(null);} }}
+    style={{position:"fixed",inset:0,background:T.ov,zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+    <div style={{background:T.b3,border:`1px solid ${T.bd}`,borderRadius:12,padding:20,
+      width:"100%",maxWidth:460,maxHeight:"85vh",display:"flex",flexDirection:"column",gap:0,overflow:"hidden"}}>
+      {/* Header */}
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
+        <div style={{fontFamily:SE,fontSize:"1rem",color:T.tx,fontWeight:400}}>Manage Categories</div>
+        <button onClick={()=>{setCatMgrOpen(false);setCmEditing(null);setCmDelConfirm(null);}}
+          style={{background:"none",border:"none",cursor:"pointer",color:T.t3,fontSize:"1rem",lineHeight:1,padding:"2px 4px"}}>✕</button>
+      </div>
+      {/* Built-in notice */}
+      <div style={{fontFamily:MO,fontSize:"0.46rem",color:T.t3,letterSpacing:"0.04em",marginBottom:10,
+        padding:"6px 10px",background:T.b2,borderRadius:6,border:`1px solid ${T.bd}`}}>
+        <span style={{color:T.ac}}>Coursework</span> is a built-in category linked to your courses and cannot be edited here.
+      </div>
+      {/* Existing cats list */}
+      <div style={{flex:1,overflowY:"auto",display:"flex",flexDirection:"column",gap:6,marginBottom:14,paddingRight:2}}>
+        {dashCats.map(dc=>{
+          const isEd=cmEditing===dc.key;
+          const isDel=cmDelConfirm===dc.key;
+          const taskCount=tasks.filter(t=>t._dashCat===dc.key||(!courseIds.has(t.category)&&t.category===dc.key)).length;
+          return <div key={dc.key} style={{border:`1px solid ${T.bd}`,borderRadius:8,overflow:"hidden"}}>
+            {/* Row */}
+            <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",background:T.b2}}>
+              <div style={{width:12,height:12,borderRadius:"50%",background:dc.color,flexShrink:0,
+                border:`2px solid ${hexToRgba(dc.color,0.35)}`}}/>
+              <span style={{flex:1,fontSize:"0.8rem",fontWeight:500,color:T.tx}}>{dc.label}</span>
+              <span style={{fontFamily:MO,fontSize:"0.44rem",color:T.t3}}>{taskCount} task{taskCount!==1?"s":""}</span>
+              {!isEd&&!isDel&&<>
+                <button onClick={()=>cmStartEdit(dc)} title="Edit"
+                  style={{background:"none",border:`1px solid ${T.bd}`,cursor:"pointer",color:T.t2,
+                    fontSize:"0.7rem",padding:"2px 7px",borderRadius:4,fontFamily:MO}}>Edit</button>
+                <button onClick={()=>setCmDelConfirm(dc.key)} title="Delete"
+                  style={{background:"none",border:`1px solid ${T.dg}33`,cursor:"pointer",color:T.dg,
+                    fontSize:"0.7rem",padding:"2px 7px",borderRadius:4,fontFamily:MO}}>Delete</button>
+              </>}
+            </div>
+            {/* Edit inline */}
+            {isEd&&<div style={{padding:"10px 12px",borderTop:`1px solid ${T.bd}`,display:"flex",flexDirection:"column",gap:8}}>
+              <div style={{display:"flex",gap:8,alignItems:"flex-end"}}>
+                <div style={{flex:1}}>
+                  <FieldLabel>Name</FieldLabel>
+                  <input value={cmLabel} onChange={e=>setCmLabel(e.target.value)} style={{...IS2,width:"100%"}}
+                    onKeyDown={e=>e.key==="Enter"&&cmSaveEdit()} autoFocus/>
+                </div>
+                <div>
+                  <FieldLabel>Color</FieldLabel>
+                  <div style={{display:"flex",alignItems:"center",gap:6}}>
+                    {["#f59e0b","#ef4444","#10b981","#3b82f6","#8b5cf6","#ec4899","#f97316","#14b8a6","#6b7280"].map(col=>
+                      <div key={col} onClick={()=>setCmColor(col)} style={{width:18,height:18,borderRadius:"50%",
+                        background:col,cursor:"pointer",flexShrink:0,
+                        outline:cmColor===col?`3px solid ${col}`:"3px solid transparent",outlineOffset:2,transition:"outline 0.1s"}}/>
+                    )}
+                    <label title="Custom color" style={{cursor:"pointer",position:"relative",display:"flex",alignItems:"center"}}>
+                      <div style={{width:18,height:18,borderRadius:"50%",background:cmColor,
+                        border:`2px dashed ${T.bd}`,cursor:"pointer",
+                        outline:!["#f59e0b","#ef4444","#10b981","#3b82f6","#8b5cf6","#ec4899","#f97316","#14b8a6","#6b7280"].includes(cmColor)?`3px solid ${cmColor}`:"3px solid transparent",outlineOffset:2}}/>
+                      <input type="color" value={cmColor} onChange={e=>setCmColor(e.target.value)}
+                        style={{position:"absolute",opacity:0,width:0,height:0,pointerEvents:"none"}}/>
+                    </label>
+                  </div>
+                </div>
+              </div>
+              <div style={{display:"flex",gap:6,justifyContent:"flex-end"}}>
+                <button onClick={cmCancelEdit} style={{padding:"4px 12px",borderRadius:5,border:`1px solid ${T.bd}`,
+                  background:"transparent",color:T.t2,cursor:"pointer",fontFamily:MO,fontSize:"0.5rem"}}>Cancel</button>
+                <button onClick={cmSaveEdit} style={{padding:"4px 14px",borderRadius:5,border:"none",
+                  background:T.ac,color:T.bg,cursor:"pointer",fontFamily:MO,fontSize:"0.5rem",fontWeight:600}}>Save</button>
+              </div>
+            </div>}
+            {/* Delete confirm inline */}
+            {isDel&&<div style={{padding:"8px 12px",borderTop:`1px solid ${T.bd}`,background:hexToRgba(T.dg,0.06),
+              display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+              <span style={{fontFamily:MO,fontSize:"0.48rem",color:T.dg}}>
+                {taskCount>0?`Reassign ${taskCount} task${taskCount!==1?"s":""} to "Other" and delete?`:"Delete this category?"}
+              </span>
+              <div style={{display:"flex",gap:5,flexShrink:0}}>
+                <button onClick={()=>setCmDelConfirm(null)} style={{padding:"3px 10px",borderRadius:5,
+                  border:`1px solid ${T.bd}`,background:"transparent",color:T.t2,cursor:"pointer",
+                  fontFamily:MO,fontSize:"0.48rem"}}>Cancel</button>
+                <button onClick={()=>cmDeleteCat(dc.key)} style={{padding:"3px 10px",borderRadius:5,border:"none",
+                  background:T.dg,color:"#fff",cursor:"pointer",fontFamily:MO,fontSize:"0.48rem",fontWeight:600}}>Delete</button>
+              </div>
+            </div>}
+          </div>;
+        })}
+      </div>
+      {/* Add new category */}
+      <div style={{borderTop:`1px solid ${T.bd}`,paddingTop:14}}>
+        <div style={{fontFamily:MO,fontSize:"0.48rem",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.08em",
+          color:T.t2,marginBottom:8}}>Add New Category</div>
+        <div style={{display:"flex",gap:8,alignItems:"flex-end"}}>
+          <div style={{flex:1}}>
+            <FieldLabel>Name</FieldLabel>
+            <input value={cmAddLabel} onChange={e=>setCmAddLabel(e.target.value)} placeholder="e.g. Research, Health…"
+              style={{...IS2,width:"100%"}} onKeyDown={e=>e.key==="Enter"&&cmAddCat()}/>
+          </div>
+          <div>
+            <FieldLabel>Color</FieldLabel>
+            <div style={{display:"flex",alignItems:"center",gap:5}}>
+              {["#3b82f6","#ef4444","#10b981","#f59e0b","#8b5cf6","#ec4899","#f97316","#14b8a6"].map(col=>
+                <div key={col} onClick={()=>setCmAddColor(col)} style={{width:16,height:16,borderRadius:"50%",
+                  background:col,cursor:"pointer",flexShrink:0,
+                  outline:cmAddColor===col?`3px solid ${col}`:"3px solid transparent",outlineOffset:2,transition:"outline 0.1s"}}/>
+              )}
+              <label title="Custom color" style={{cursor:"pointer",position:"relative",display:"flex",alignItems:"center"}}>
+                <div style={{width:16,height:16,borderRadius:"50%",background:cmAddColor,
+                  border:`2px dashed ${T.bd}`,cursor:"pointer"}}/>
+                <input type="color" value={cmAddColor} onChange={e=>setCmAddColor(e.target.value)}
+                  style={{position:"absolute",opacity:0,width:0,height:0,pointerEvents:"none"}}/>
+              </label>
+            </div>
+          </div>
+          <button onClick={cmAddCat} disabled={!cmAddLabel.trim()}
+            style={{padding:"7px 16px",borderRadius:6,border:"none",
+              background:cmAddLabel.trim()?T.ac:T.b2,color:cmAddLabel.trim()?T.bg:T.t3,
+              cursor:cmAddLabel.trim()?"pointer":"default",fontFamily:MO,fontSize:"0.52rem",fontWeight:600,
+              whiteSpace:"nowrap",transition:"all 0.15s",flexShrink:0}}>
+            + Add
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>;
+
+  // ── Main render ──
+  return <div style={{flex:1,overflow:"auto",display:"flex",justifyContent:"center",padding:"24px 16px 40px",background:T.bg}}>
+    <div style={{width:"100%",maxWidth:720}}>
+      {/* Header */}
+      <div style={{marginBottom:20}}>
+        <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+          <div>
+            <h2 style={{fontFamily:SE,fontSize:"1.6rem",fontWeight:400,margin:0,color:T.tx,letterSpacing:"-0.02em"}}>
+              Task<span style={{color:T.ac,fontStyle:"italic"}}> Dashboard</span>
+            </h2>
+            <div style={{fontFamily:MO,fontSize:"0.52rem",color:T.t2,letterSpacing:"0.05em",marginTop:3}}>
+              {doneCount} of {total} done &nbsp;·&nbsp; {total-doneCount} remaining
+              {totalEst>0&&<> &nbsp;·&nbsp; ~{totalEst%1===0?totalEst:totalEst.toFixed(1)}h estimated</>}
+            </div>
+          </div>
+          <div style={{display:"flex",gap:6,flexShrink:0}}>
+            <button onClick={()=>{setCatMgrOpen(true);setCmEditing(null);setCmDelConfirm(null);}}
+              style={{padding:"7px 13px",borderRadius:7,border:`1px solid ${T.bd}`,background:T.b3,
+                color:T.t2,cursor:"pointer",fontFamily:MO,fontSize:"0.52rem",letterSpacing:"0.05em"}}>
+              ⚙ Categories
+            </button>
+            <button onClick={()=>setAddOpen(p=>!p)}
+              style={{padding:"7px 16px",borderRadius:7,border:"none",background:T.ac,color:T.bg,
+                cursor:"pointer",fontFamily:MO,fontSize:"0.56rem",fontWeight:600,letterSpacing:"0.07em",textTransform:"uppercase"}}>
+              {addOpen?"✕ Cancel":"+ New Task"}
+            </button>
+          </div>
+        </div>
+        <div style={{marginTop:12,height:5,background:T.b2,borderRadius:3,overflow:"hidden",border:`1px solid ${T.bd}`}}>
+          <div style={{height:"100%",background:T.ac,borderRadius:3,width:`${pct}%`,transition:"width 0.4s",opacity:0.85}}/>
+        </div>
+      </div>
+
+      {/* Add Task Form */}
+      {addOpen&&<div style={{background:T.b3,border:`1px solid ${T.bd}`,borderRadius:10,padding:"16px",marginBottom:16}}>
+        <div style={{fontFamily:MO,fontSize:"0.5rem",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.1em",color:T.t2,marginBottom:12}}>New Task</div>
+        <div style={{marginBottom:10}}>
+          <FieldLabel>Title</FieldLabel>
+          <input value={nTitle} onChange={e=>setNTitle(e.target.value)} placeholder="What needs to get done?"
+            style={IS2} onKeyDown={e=>e.key==="Enter"&&addTask()} autoFocus/>
+        </div>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10}}>
+          <CatSelect val={nCat} set={setNCat} courses={courses} courseVal={nCourse} setCourse={setNCourse}/>
+          <div style={{flex:"1 1 110px"}}>
+            <FieldLabel>Due Date</FieldLabel>
+            <input type="date" value={nDue} onChange={e=>setNDue(e.target.value)} style={IS2}/>
+          </div>
+          <div style={{flex:"1 1 110px"}}>
+            <FieldLabel>Est. Time</FieldLabel>
+            <select value={nEst} onChange={e=>setNEst(e.target.value)} style={IS2}>
+              {EST_OPTS.map(o=><option key={o} value={o}>{o||"— none —"}</option>)}
+            </select>
+          </div>
+        </div>
+        <div style={{marginBottom:10}}>
+          <FieldLabel>Notes <span style={{fontWeight:400,textTransform:"none",letterSpacing:0}}>(optional)</span></FieldLabel>
+          <textarea value={nNote} onChange={e=>setNNote(e.target.value)} placeholder="Links, context, instructions…"
+            rows={2} style={{...IS2,resize:"vertical",lineHeight:1.4}}/>
+        </div>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+          <UrgToggle val={nUrgent} set={setNUrgent}/>
+          <button onClick={addTask} style={{padding:"7px 20px",borderRadius:6,border:"none",
+            background:T.ac,color:T.bg,cursor:"pointer",fontFamily:MO,fontSize:"0.56rem",fontWeight:600,letterSpacing:"0.06em"}}>
+            Add Task
+          </button>
+        </div>
+      </div>}
+
+      {/* Filter tabs */}
+      <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:14,alignItems:"center"}}>
+        {filterTabs.map(ft=>{
+          const isActive=filter===ft.key;
+          const col=ft.color||T.ac;
+          return <button key={ft.key} onClick={()=>{setFilter(ft.key);setCourseFilter("all");}}
+            style={{display:"flex",alignItems:"center",gap:4,padding:"4px 11px",borderRadius:12,cursor:"pointer",
+              fontFamily:MO,fontSize:"0.5rem",letterSpacing:"0.04em",textTransform:"uppercase",
+              background:isActive?col:"transparent",
+              color:isActive?"#fff":T.t2,
+              border:`1px solid ${isActive?col:T.bd}`,transition:"all 0.15s"}}>
+            {ft.key!=="all"&&ft.key!=="coursework"&&<div style={{width:6,height:6,borderRadius:"50%",
+              background:isActive?"rgba(255,255,255,0.7)":col,flexShrink:0}}/>}
+            {ft.label}
+            {ft.count>0&&<span style={{fontFamily:MO,fontSize:"0.42rem",
+              background:isActive?"rgba(255,255,255,0.22)":hexToRgba(col,0.15),
+              color:isActive?"#fff":col,borderRadius:8,padding:"0 4px",minWidth:14,textAlign:"center"}}>{ft.count}</span>}
+          </button>;
+        })}
+      </div>
+
+      {/* Course sub-filter */}
+      {filter==="coursework"&&courses&&courses.length>1&&<div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:12}}>
+        <button onClick={()=>setCourseFilter("all")} style={{padding:"2px 9px",borderRadius:10,cursor:"pointer",
+          fontFamily:MO,fontSize:"0.46rem",letterSpacing:"0.04em",
+          background:courseFilter==="all"?T.b2:"transparent",
+          color:courseFilter==="all"?T.tx:T.t3,border:`1px solid ${courseFilter==="all"?T.bd:"transparent"}`}}>All courses</button>
+        {courses.map(c=>{const col=(cats[c.id]||cats.other)?.color||T.ac;return<button key={c.id} onClick={()=>setCourseFilter(c.id)}
+          style={{padding:"2px 9px",borderRadius:10,cursor:"pointer",fontFamily:MO,fontSize:"0.46rem",
+            background:courseFilter===c.id?hexToRgba(col,0.15):"transparent",color:courseFilter===c.id?col:T.t3,
+            border:`1px solid ${courseFilter===c.id?hexToRgba(col,0.4):"transparent"}`}}>{c.name}</button>;})}
+      </div>}
+
+      {/* Task sections */}
+      <Section label="Urgent / time-sensitive" items={urgent} accent={T.dg}/>
+      <Section label={urgent.length?"Other tasks":"Active tasks"} items={normal} accent={null}/>
+      {done.length>0&&<div>
+        <button onClick={()=>setShowDone(p=>!p)} style={{display:"flex",alignItems:"center",gap:5,background:"none",border:"none",
+          cursor:"pointer",fontFamily:MO,fontSize:"0.48rem",fontWeight:600,textTransform:"uppercase",
+          letterSpacing:"0.08em",color:T.t3,padding:"10px 0 4px"}}>
+          <span style={{fontSize:"0.6rem"}}>{showDone?"▾":"▸"}</span>
+          Completed ({done.length})
+        </button>
+        {showDone&&<div style={{display:"flex",flexDirection:"column",gap:4}}>
+          {done.map(tk=><TaskRow key={tk.id} tk={tk}/>)}
+        </div>}
+      </div>}
+      {filtered.length===0&&<div style={{textAlign:"center",padding:"48px 0",fontFamily:MO,
+        fontSize:"0.6rem",color:T.t3,letterSpacing:"0.06em"}}>
+        No tasks in this category. Add one above ↑
+      </div>}
+    </div>
+
+    {/* Task Edit Modal */}
+    {editModal&&<div onClick={e=>{if(e.target===e.currentTarget)closeEdit();}}
+      style={{position:"fixed",inset:0,background:T.ov,zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+      <div style={{background:T.b3,border:`1px solid ${T.bd}`,borderRadius:12,padding:20,
+        width:"100%",maxWidth:440,display:"flex",flexDirection:"column",gap:12}}>
+        <div style={{fontFamily:SE,fontSize:"1rem",color:T.tx,fontWeight:400}}>Edit Task</div>
+        <div><FieldLabel>Title</FieldLabel>
+          <input value={eTitle} onChange={e=>setETitle(e.target.value)} style={IS2} autoFocus/></div>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          <CatSelect val={eCat} set={setECat} courses={courses} courseVal={eCourse} setCourse={setECourse}/>
+        </div>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          <div style={{flex:1}}><FieldLabel>Due Date</FieldLabel>
+            <input type="date" value={eDue} onChange={e=>setEDue(e.target.value)} style={IS2}/></div>
+          <div style={{flex:1}}><FieldLabel>Est. Time</FieldLabel>
+            <select value={eEst} onChange={e=>setEEst(e.target.value)} style={IS2}>
+              {EST_OPTS.map(o=><option key={o} value={o}>{o||"— none —"}</option>)}
+            </select></div>
+        </div>
+        <div><FieldLabel>Notes</FieldLabel>
+          <textarea value={eNote} onChange={e=>setENote(e.target.value)} rows={2}
+            style={{...IS2,resize:"vertical",lineHeight:1.4}}/></div>
+        <UrgToggle val={eUrgent} set={setEUrgent}/>
+        <div style={{display:"flex",gap:8,justifyContent:"flex-end",borderTop:`1px solid ${T.bd}`,paddingTop:10,marginTop:2}}>
+          <button onClick={closeEdit} style={{padding:"6px 16px",borderRadius:6,border:`1px solid ${T.bd}`,
+            background:"transparent",color:T.t2,cursor:"pointer",fontFamily:MO,fontSize:"0.52rem"}}>Cancel</button>
+          <button onClick={saveEdit} style={{padding:"6px 18px",borderRadius:6,border:"none",
+            background:T.ac,color:T.bg,cursor:"pointer",fontFamily:MO,fontSize:"0.56rem",fontWeight:600}}>Save</button>
+        </div>
+      </div>
+    </div>}
+
+    {/* Category Manager Modal */}
+    {catMgrOpen&&<CatMgrModal/>}
   </div>;
 }
 
