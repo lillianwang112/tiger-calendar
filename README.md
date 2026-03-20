@@ -27,7 +27,7 @@
 
 ---
 
-大家好! 👋
+Hey Everyone! 👋
 
 I built TigerCalendar because Google Calendar doesn't know what a precept is, and iCal doesn't know when Spring Break starts. This is a full-featured calendar and task manager built *specifically* for Princeton students — with course setup, semester-aware scheduling, academic calendar overlays, cloud sync, and a time grid that actually works on your phone.
 
