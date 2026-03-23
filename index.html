@@ -592,10 +592,10 @@ function useFirestoreSync(user,_localData,setters){
 
 function uploadToFirestore(uid,data){
   if(!FB_DB||!uid)return;
-  // Use the _ts already on the data (set by the save effect) so echo protection
-  // in onSnapshot can correctly detect this as our own write.
-  const clean={...data};
-  if(!clean._ts)clean._ts=Date.now();
+  // JSON round-trip strips undefined values from task/event objects, which
+  // Firestore rejects (throws "Unsupported field value: undefined"), causing
+  // silent write failures for ASAP tasks and tasks without a time.
+  const clean=JSON.parse(JSON.stringify({...data,_ts:data._ts||Date.now()}));
   FB_DB.collection("calendars").doc(uid).set(clean).catch(e=>console.warn("Firestore write error:",e));
 }
 
