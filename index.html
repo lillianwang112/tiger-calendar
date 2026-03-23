@@ -1586,7 +1586,7 @@ function TGSwipe({T,panels,events,tasks,cats,ac,setModal,modal,MO,SE,drag,setDra
                     const singleDay=dA.filter(ev=>!ev._multiDay);
                     return <div key={$d(d)} style={{flex:1,padding:"1px 2px",maxHeight:52,overflow:"hidden",borderLeft:`1px solid ${T.bd}`}}>
                       {/* Single-day all-day events */}
-                      {singleDay.map(ev=>{const ec=cats[ev.category]||cats._academic;return <div key={ev.id} style={{fontSize:"0.42rem",padding:"0 2px",borderRadius:2,background:ec?.bg,color:ec?.color,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontWeight:500,lineHeight:1.6,marginBottom:1}}>{ev.title}</div>;})}
+                      {singleDay.map(ev=>{const ec=cats[ev.category]||cats._academic;return <div key={ev.id} onClick={e=>{e.stopPropagation();setModal({type:"event",data:ev});}} style={{fontSize:"0.42rem",padding:"0 2px",borderRadius:2,background:ec?.bg,color:ec?.color,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontWeight:500,lineHeight:1.6,marginBottom:1,cursor:"pointer"}}>{ev.title}</div>;})}
                       {/* Space-holder rows for multi-day bars (so they don't overlap single-day chips) */}
                       {dA.some(ev=>ev._multiDay)&&<div style={{height:14,marginBottom:1}}/>}
                       {dTk.slice(0,1).map(tk=><div key={tk.id} onClick={e=>{e.stopPropagation();setModal({type:"task",data:tk});}} style={{fontSize:"0.42rem",padding:"0 2px",borderRadius:2,background:cat.bg,color:cat.color,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",opacity:tk.done?0.5:1,lineHeight:1.6,cursor:"pointer"}}>{tk.title}</div>)}
@@ -1605,13 +1605,14 @@ function TGSwipe({T,panels,events,tasks,cats,ac,setModal,modal,MO,SE,drag,setDra
                     const isFirst=panelDates[firstCol]===startDs;
                     const isLast=panelDates[lastCol]===endDs;
                     return <div key={ev._mdStart+ev.title}
+                      onClick={e=>{e.stopPropagation();setModal({type:"event",data:ev});}}
                       style={{position:"absolute",bottom:2,
                         left:`calc(${(firstCol/totalCols)*100}% + ${isFirst?2:0}px)`,
                         right:`calc(${((totalCols-1-lastCol)/totalCols)*100}% + ${isLast?2:0}px)`,
                         height:13,background:ec?.bg,borderLeft:isFirst?`3px solid ${ec?.color}`:"none",
                         borderRight:isLast?"none":"none",
                         borderRadius:isFirst&&isLast?2:isFirst?"2px 0 0 2px":isLast?"0 2px 2px 0":0,
-                        display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",zIndex:3}}>
+                        display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",zIndex:3,cursor:"pointer"}}>
                       <span style={{fontSize:"0.4rem",fontWeight:600,color:ec?.color,
                         overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",
                         padding:"0 4px",lineHeight:1}}>{ev.title}</span>
@@ -3277,6 +3278,7 @@ function TasksDashboard({T,MO,SE,tasks,cats,courses,aT,uT,dT,tT,pushUndo}){
   const[nCourse,setNCourse]=useState("");
   const[nUrgent,setNUrgent]=useState(false);
   const[nEst,setNEst]=useState("");
+  const[nEstManual,setNEstManual]=useState(false);
   const[nNote,setNNote]=useState("");
   // edit task form
   const[eTitle,setETitle]=useState("");
@@ -3288,6 +3290,7 @@ function TasksDashboard({T,MO,SE,tasks,cats,courses,aT,uT,dT,tT,pushUndo}){
   const[eCourse,setECourse]=useState("");
   const[eUrgent,setEUrgent]=useState(false);
   const[eEst,setEEst]=useState("");
+  const[eEstManual,setEEstManual]=useState(false);
   const[eNote,setENote]=useState("");
 
   const allDash=useMemo(()=>tasks,[tasks]);
@@ -3337,7 +3340,8 @@ function TasksDashboard({T,MO,SE,tasks,cats,courses,aT,uT,dT,tT,pushUndo}){
   const done=filtered.filter(t=>t.done);
 
   const estMap={"15 min":0.25,"30 min":0.5,"45 min":0.75,"1 hr":1,"1.5 hr":1.5,"2 hr":2,"3 hr":3,"4+ hr":4};
-  const totalEst=[...urgent,...normal].reduce((s,t)=>s+(estMap[t._est]||0),0);
+  const parseEst=(v)=>{if(!v)return 0;if(estMap[v]!==undefined)return estMap[v];const hrM=v.match(/(\d+\.?\d*)\s*(h|hr|hrs|hour|hours)/i);if(hrM)return parseFloat(hrM[1]);const minM=v.match(/(\d+\.?\d*)\s*(m|min|mins|minute|minutes)/i);if(minM)return parseFloat(minM[1])/60;const n=parseFloat(v);return isNaN(n)?0:n;};
+  const totalEst=[...urgent,...normal].reduce((s,t)=>s+parseEst(t._est||""),0);
 
   // ── Task CRUD ──
   const resolveCatVal=(dashCatKey,courseId)=>{
@@ -3349,7 +3353,11 @@ function TasksDashboard({T,MO,SE,tasks,cats,courses,aT,uT,dT,tT,pushUndo}){
     setEHasDueTime(!!tk.hasDueTime);setEDueHour(tk.dueHour??23);setEDueMin(tk.dueMin??59);
     setECat(tk._dashCat||(courseIds.has(tk.category)?"coursework":dashCats[0]?.key||"other"));
     setECourse(tk.category||(courses&&courses[0]?.id)||"");
-    setEUrgent(!!tk._urgent);setEEst(tk._est||"");setENote(tk.detail||"");
+    setEUrgent(!!tk._urgent);
+    const savedEst=tk._est||"";
+    setEEst(savedEst);
+    setEEstManual(!!savedEst&&!EST_OPTS.includes(savedEst));
+    setENote(tk.detail||"");
     setEditModal(tk);
   };
   const closeEdit=()=>setEditModal(null);
@@ -3672,10 +3680,19 @@ function TasksDashboard({T,MO,SE,tasks,cats,courses,aT,uT,dT,tT,pushUndo}){
             </div>
           </div>
           <div style={{flex:"1 1 110px"}}>
-            <FieldLabel>Est. Time</FieldLabel>
-            <select value={nEst} onChange={e=>setNEst(e.target.value)} style={IS2}>
-              {EST_OPTS.map(o=><option key={o} value={o}>{o||"— none —"}</option>)}
-            </select>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}>
+              <FieldLabel>Est. Time</FieldLabel>
+              <button onClick={()=>{setNEstManual(p=>{if(p&&!EST_OPTS.includes(nEst))setNEst("");return!p;});}} title={nEstManual?"Use presets":"Enter manually"}
+                style={{padding:"1px 6px",borderRadius:4,border:`1px solid ${T.bd}`,background:nEstManual?T.ac:"transparent",
+                  color:nEstManual?T.bg:T.t3,cursor:"pointer",fontFamily:MO,fontSize:"0.42rem",letterSpacing:"0.04em",lineHeight:1.6}}>
+                {nEstManual?"preset":"custom"}
+              </button>
+            </div>
+            {nEstManual
+              ?<input value={nEst} onChange={e=>setNEst(e.target.value)} placeholder="e.g. 1.5 hr, 45 min" style={IS2}/>
+              :<select value={nEst} onChange={e=>setNEst(e.target.value)} style={IS2}>
+                {EST_OPTS.map(o=><option key={o} value={o}>{o||"— none —"}</option>)}
+              </select>}
           </div>
         </div>
         <div style={{marginBottom:10}}>
@@ -3773,10 +3790,21 @@ function TasksDashboard({T,MO,SE,tasks,cats,courses,aT,uT,dT,tT,pushUndo}){
               </div>}
             </div>
           </div>
-          <div style={{flex:1}}><FieldLabel>Est. Time</FieldLabel>
-            <select value={eEst} onChange={e=>setEEst(e.target.value)} style={IS2}>
-              {EST_OPTS.map(o=><option key={o} value={o}>{o||"— none —"}</option>)}
-            </select></div>
+          <div style={{flex:1}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}>
+              <FieldLabel>Est. Time</FieldLabel>
+              <button onClick={()=>{setEEstManual(p=>{if(p&&!EST_OPTS.includes(eEst))setEEst("");return!p;});}} title={eEstManual?"Use presets":"Enter manually"}
+                style={{padding:"1px 6px",borderRadius:4,border:`1px solid ${T.bd}`,background:eEstManual?T.ac:"transparent",
+                  color:eEstManual?T.bg:T.t3,cursor:"pointer",fontFamily:MO,fontSize:"0.42rem",letterSpacing:"0.04em",lineHeight:1.6}}>
+                {eEstManual?"preset":"custom"}
+              </button>
+            </div>
+            {eEstManual
+              ?<input value={eEst} onChange={e=>setEEst(e.target.value)} placeholder="e.g. 1.5 hr, 45 min" style={IS2}/>
+              :<select value={eEst} onChange={e=>setEEst(e.target.value)} style={IS2}>
+                {EST_OPTS.map(o=><option key={o} value={o}>{o||"— none —"}</option>)}
+              </select>}
+          </div>
         </div>
         <div><FieldLabel>Notes</FieldLabel>
           <textarea value={eNote} onChange={e=>setENote(e.target.value)} rows={2}
