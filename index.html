@@ -430,6 +430,11 @@ function useFirestoreSync(user,_localData,setters){
   const cloudReadyRef=useRef(false);
   const debounceRef=useRef(null);
   const lastUploadTs=useRef(0); // track the _ts of the last upload we sent
+  const pendingDataRef=useRef(null); // latest unsaved data, flushed on visibility hide
+  // cloudSyncReady: React state version of cloudReadyRef, exposed to App so
+  // svForUser is only called AFTER the initial cloud snapshot is applied.
+  // This prevents the empty-initial-state write from poisoning localStorage.
+  const[cloudSyncReady,setCloudSyncReady]=useState(()=>!user);
 
   function applyCloud(cloud,isInitial){
     syncRef.current=true;
@@ -519,18 +524,17 @@ function useFirestoreSync(user,_localData,setters){
     sv(cloud);
     // Wait for React to flush all state updates before re-enabling uploads.
     // The 800ms delay covers React batching + any residual useEffect cycles.
-    setTimeout(()=>{syncRef.current=false;if(isInitial)cloudReadyRef.current=true;},800);
+    setTimeout(()=>{syncRef.current=false;if(isInitial){cloudReadyRef.current=true;setCloudSyncReady(true);}},800);
   }
 
   useEffect(()=>{
-    if(!FB_DB||!user){cloudReadyRef.current=false;return;}
-    cloudReadyRef.current=false; // block uploads immediately on sign-in
+    if(!FB_DB||!user){cloudReadyRef.current=false;setCloudSyncReady(true);return;}
+    cloudReadyRef.current=false;
+    setCloudSyncReady(false); // block svForUser until cloud snapshot is applied
     const docRef=FB_DB.collection("calendars").doc(user.uid);
     docRef.get().then(snap=>{
       if(snap.exists){
         const cloud=snap.data();
-        // Snapshot the authoritative cloud state BEFORE applying it so users can
-        // recover from any future sync mishap via Settings → Restore backup.
         saveBackup(user.uid,cloud);
         applyCloud(cloud,true);
       } else {
@@ -544,7 +548,7 @@ function useFirestoreSync(user,_localData,setters){
       }
     }).catch(e=>{
       console.warn("Firestore read error:",e);
-      cloudReadyRef.current=true; // unblock on error so app remains usable
+      cloudReadyRef.current=true;setCloudSyncReady(true); // unblock on error so app remains usable
     });
 
     const unsub=docRef.onSnapshot(snap=>{
@@ -555,14 +559,26 @@ function useFirestoreSync(user,_localData,setters){
       // Only apply if cloud is meaningfully newer (500ms buffer avoids echo)
       if(cloud._ts>localTs+500){saveBackup(user.uid,cloud);applyCloud(cloud,false);}
     });
-    return unsub;
+    // Flush any pending debounced upload when the tab goes hidden (user switches
+    // tabs, minimizes, or closes the window). This fires reliably before the
+    // page is discarded, giving Firestore enough time to queue the write.
+    const flushOnHide=()=>{
+      if(document.visibilityState==="hidden"&&pendingDataRef.current){
+        clearTimeout(debounceRef.current);
+        uploadToFirestore(user.uid,pendingDataRef.current);
+        pendingDataRef.current=null;
+      }
+    };
+    document.addEventListener("visibilitychange",flushOnHide);
+    return ()=>{unsub();document.removeEventListener("visibilitychange",flushOnHide);};
   },[user]);
 
   const upload=useCallback((data)=>{
     if(!FB_DB||!user||syncRef.current||!cloudReadyRef.current)return;
     if(data._ts)lastUploadTs.current=data._ts;
+    pendingDataRef.current=data; // always track latest for visibility flush
     clearTimeout(debounceRef.current);
-    debounceRef.current=setTimeout(()=>{uploadToFirestore(user.uid,data);},1500);
+    debounceRef.current=setTimeout(()=>{uploadToFirestore(user.uid,data);pendingDataRef.current=null;},1500);
   },[user]);
 
   const restoreFromBackup=useCallback((backup)=>{
@@ -571,7 +587,7 @@ function useFirestoreSync(user,_localData,setters){
     uploadToFirestore(user.uid,backup);
   },[user]);
 
-  return{upload,restoreFromBackup};
+  return{upload,restoreFromBackup,cloudSyncReady};
 }
 
 function uploadToFirestore(uid,data){
@@ -804,26 +820,30 @@ function App(){
   // Task-due shadow events — computed fresh every render from tasks, never persisted.
   // Compute task-due shadow events and merge with real events every render.
   // Deliberately NOT memoized — avoids any staleness/ordering issues with React batching.
-  const _taskDueEvs=tasks.filter(t=>t.hasDueTime&&t.date&&!t.done&&t.dueHour!=null).map(t=>{
+  const _taskDueEvs=tasks.filter(t=>t.hasDueTime&&t.date&&(!t.done||settings.showCompletedTasks)&&t.dueHour!=null).map(t=>{
     const dH=+(t.dueHour),dM=+(t.dueMin||0);
     // Block ENDS at due time, starts 30 min before (so 11:59 PM shows as 11:29–11:59)
     const endMins=dH*60+dM;
     const startMins=Math.max(0,endMins-30);
     const sH=Math.floor(startMins/60),sM=startMins%60;
-    return{id:"td_"+t.id,title:"✓ "+t.title,date:t.date,category:t.category,
+    return{id:"td_"+t.id,title:(t.done?"✓ ":"")+t.title,date:t.date,category:t.category,
       startHour:sH,startMin:sM,endHour:dH,endMin:dM,
-      detail:t.detail||"",_taskDueId:t.id,_allDay:false};
+      detail:t.detail||"",_taskDueId:t.id,_allDay:false,_done:t.done};
   });
   const allEvents=[...events.filter(e=>!e._taskDueId),..._taskDueEvs];
-  const{upload,restoreFromBackup}=useFirestoreSync(user,{events:persistableEvents,tasks,courses,cats,sem,theme,showHolidays,settings,exams,assignments,officeHours},syncSetters);
+  const{upload,restoreFromBackup,cloudSyncReady}=useFirestoreSync(user,{events:persistableEvents,tasks,courses,cats,sem,theme,showHolidays,settings,exams,assignments,officeHours},syncSetters);
 
   useEffect(()=>{setAc(p=>{const n=new Set(p);Object.keys(cats).forEach(k=>n.add(k));n.add("_holidays");n.add("_officehours");return n;});},[cats]);
   useEffect(()=>{
+    // Gate svForUser behind cloudSyncReady: prevents writing the empty initial
+    // state to localStorage before the cloud snapshot is applied, which would
+    // make ldForUser return an empty record and corrupt local-first detection.
+    if(!cloudSyncReady) return;
     const ts=Date.now();
     const data={events:persistableEvents,tasks,courses,cats,sem,theme,showHolidays,settings,exams,assignments,officeHours,_ts:ts};
     svForUser(user?.uid||(isGuest?"guest":null),data);
     if(user)upload(data);
-  },[persistableEvents,tasks,courses,cats,sem,theme,showHolidays,settings,exams,assignments,officeHours,user]);
+  },[persistableEvents,tasks,courses,cats,sem,theme,showHolidays,settings,exams,assignments,officeHours,user,cloudSyncReady]);
 
 
 
@@ -1227,7 +1247,7 @@ function App(){
           ];
           return <TGSwipe T={T} panels={panels} events={allEvents} tasks={tasks} cats={cats} ac={ac}
             setModal={setModal} modal={modal} MO={MO} SE={SE} drag={drag} setDrag={setDrag}
-            swipeDx={swipeDx} swiping={swipeDx!==0} sharedScrollRef={sharedScrollRef}/>;
+            swipeDx={swipeDx} swiping={swipeDx!==0} sharedScrollRef={sharedScrollRef} settings={settings}/>;
         })():view==="month"?(()=>{
           const prevCd=navDate(cd,-1),nextCd=navDate(cd,1);
           const translateX=`calc(-33.333% + ${swipeDx}px)`;
@@ -1241,7 +1261,7 @@ function App(){
           </div>;
         })():<>
           {view==="year"&&<YrV T={T} date={cd} events={allEvents} tasks={tasks} MO={MO} SE={SE} setCd={setCd} setView={setView}/>}
-          {view==="schedule"&&<SchedV T={T} date={cd} events={allEvents} tasks={tasks} cats={cats} ac={ac} setModal={setModal} MO={MO} SE={SE} setCd={setCd}/>}
+          {view==="schedule"&&<SchedV T={T} date={cd} events={allEvents} tasks={tasks} cats={cats} ac={ac} setModal={setModal} MO={MO} SE={SE} setCd={setCd} settings={settings}/>}
           {view==="semester"&&<SemV T={T} sem={sem} events={allEvents} tasks={tasks} exams={exams} assignments={assignments} courses={courses} cats={cats} ac={ac} setModal={setModal} MO={MO} SE={SE} setCd={setCd} setView={setView}/>}
           {view==="tasks-dashboard"&&<TasksDashboard T={T} MO={MO} SE={SE} tasks={tasks} cats={cats} courses={courses} aT={aT} uT={uT} dT={dT} tT={tT} pushUndo={pushUndo}/>}
         </>}
@@ -1398,7 +1418,7 @@ function Sidebar({T,m,sm,tasks,events,cats,ac,tC,tT,dT,setModal,cd,setCd,mcM,set
 // ═══ TIME GRID ═══
 // TGSwipe: owns ONE scrollRef, ONE time gutter, and slides only the day-column panels.
 // This means the time gutter never moves and horizontal grid lines are perfectly continuous.
-function TGSwipe({T,panels,events,tasks,cats,ac,setModal,modal,MO,SE,drag,setDrag,swipeDx,swiping,sharedScrollRef}){
+function TGSwipe({T,panels,events,tasks,cats,ac,setModal,modal,MO,SE,drag,setDrag,swipeDx,swiping,sharedScrollRef,settings={}}){
   const scrollRef=useRef(null);
   const[hh,setHh]=useState(HH);
   const[nowP,setNowP]=useState(null);
@@ -1599,7 +1619,7 @@ function TGSwipe({T,panels,events,tasks,cats,ac,setModal,modal,MO,SE,drag,setDra
   const panelAD=panels.map(({key,dates})=>{
     const ad=dates.map(d=>{const ds=$d(d);return{d,
       ad:events.filter(x=>x._allDay&&x.date===ds&&ac.has(x.category)),
-      tk:tasks.filter(x=>x.date===ds&&ac.has(x.category)&&!(x.hasDueTime&&x.dueHour!=null))};});
+      tk:tasks.filter(x=>x.date===ds&&ac.has(x.category)&&!(x.hasDueTime&&x.dueHour!=null)&&(!x.done||settings.showCompletedTasks))};});
     return{key,dates,ad,hasAD:ad.some(x=>x.ad.length>0||x.tk.length>0)};
   });
   const anyAD=panelAD.some(p=>p.hasAD);
@@ -1636,7 +1656,7 @@ function TGSwipe({T,panels,events,tasks,cats,ac,setModal,modal,MO,SE,drag,setDra
                       {singleDay.map(ev=>{const ec=cats[ev.category]||cats._academic;return <div key={ev.id} onClick={e=>{e.stopPropagation();setModal({type:"event",data:ev});}} style={{fontSize:"0.42rem",padding:"0 2px",borderRadius:2,background:ec?.bg,color:ec?.color,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontWeight:500,lineHeight:1.6,marginBottom:1,cursor:"pointer"}}>{ev.title}</div>;})}
                       {/* Space-holder rows for multi-day bars (so they don't overlap single-day chips) */}
                       {dA.some(ev=>ev._multiDay)&&<div style={{height:14,marginBottom:1}}/>}
-                      {dTk.slice(0,1).map(tk=><div key={tk.id} onClick={e=>{e.stopPropagation();setModal({type:"task",data:tk});}} style={{fontSize:"0.42rem",padding:"0 2px",borderRadius:2,background:cat.bg,color:cat.color,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",opacity:tk.done?0.5:1,lineHeight:1.6,cursor:"pointer"}}>{tk.title}</div>)}
+                      {dTk.slice(0,1).map(tk=><div key={tk.id} onClick={e=>{e.stopPropagation();setModal({type:"task",data:tk});}} style={{fontSize:"0.42rem",padding:"0 2px",borderRadius:2,background:cat.bg,color:cat.color,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",opacity:tk.done?0.5:1,lineHeight:1.6,cursor:"pointer",textDecoration:tk.done?"line-through":"none"}}>{tk.title}</div>)}
                     </div>;
                   })}
                   {/* Absolutely-positioned spanning bars for multi-day events */}
@@ -1715,8 +1735,9 @@ function TGSwipe({T,panels,events,tasks,cats,ac,setModal,modal,MO,SE,drag,setDra
                         borderRadius:3,padding:"1px 3px",
                         cursor:"pointer",overflow:"hidden",zIndex:5,
                         boxShadow:"0 1px 2px rgba(0,0,0,0.12)",
-                        boxSizing:"border-box",minWidth:0}}>
-                      <div style={{fontSize:"0.55rem",fontWeight:600,color:T.tx,lineHeight:1.15,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{ev.title}</div>
+                        boxSizing:"border-box",minWidth:0,
+                        opacity:ev._done?0.5:1}}>
+                      <div style={{fontSize:"0.55rem",fontWeight:600,color:T.tx,lineHeight:1.15,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",textDecoration:ev._done?"line-through":"none"}}>{ev.title}</div>
                       {ht>22&&<div style={{fontFamily:MO,fontSize:"0.38rem",color:T.t2,marginTop:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
                         {isTD?`due ${$t(ev.endHour,ev.endMin||0)}`:`${$t(ev.startHour,ev.startMin||0)}–${$t(ev.endHour,ev.endMin||0)}`}
                       </div>}
@@ -1870,7 +1891,7 @@ function SemV({T,sem,events,tasks,exams,assignments,courses,cats,ac,setModal,MO,
 }
 
 // ═══ SCHEDULE VIEW ═══
-function SchedV({T,date,events,tasks,cats,ac,setModal,MO,SE,setCd}){
+function SchedV({T,date,events,tasks,cats,ac,setModal,MO,SE,setCd,settings={}}){
   const isMobile=window.innerWidth<768;
   const todayD=$p($d(date));
   const days=[];
@@ -1879,13 +1900,25 @@ function SchedV({T,date,events,tasks,cats,ac,setModal,MO,SE,setCd}){
     const ds=$d(d);
     const dEv=events.filter(e=>e.date===ds&&ac.has(e.category)&&!e._allDay&&!e._taskDueId).sort((a,b)=>a.startHour-b.startHour||(a.startMin||0)-(b.startMin||0));
     const dAl=events.filter(e=>e.date===ds&&ac.has(e.category)&&e._allDay);
-    const dTk=tasks.filter(t=>t.date===ds&&ac.has(t.category)&&!t.done);
+    const dTk=tasks.filter(t=>t.date===ds&&ac.has(t.category)&&(!t.done||settings.showCompletedTasks));
     if(dEv.length||dAl.length||dTk.length)days.push({d,ds,dEv,dAl,dTk});
   }
 
+  const asapTasks=tasks.filter(t=>!t.date&&!t.done&&ac.has(t.category));
   if(isMobile){
     return <div style={{flex:1,overflow:"auto",background:T.bg}}>
-      {days.length===0&&<div style={{padding:40,textAlign:"center",color:T.t3,fontFamily:MO,fontSize:"0.6rem",letterSpacing:"0.08em"}}>NO UPCOMING EVENTS</div>}
+      {asapTasks.length>0&&<div style={{marginBottom:2}}>
+        <div style={{padding:"6px 16px 4px",fontFamily:MO,fontSize:"0.5rem",color:"#f97316",letterSpacing:"0.1em",textTransform:"uppercase",background:"rgba(249,115,22,0.06)",borderBottom:"1px solid rgba(249,115,22,0.15)"}}>ASAP — No date</div>
+        <div style={{paddingLeft:80,paddingRight:12,paddingTop:8,paddingBottom:4}}>
+          {asapTasks.map(tk=>{const cat=cats[tk.category]||cats.other;
+            return <div key={tk.id} onClick={()=>setModal({type:"task",data:tk})}
+              style={{background:cat.color,color:"#fff",borderRadius:4,padding:"10px 14px",marginBottom:4,cursor:"pointer",display:"flex",alignItems:"center",gap:8}}>
+              <span style={{fontSize:"0.85rem",opacity:0.9}}>✓</span>
+              <div style={{fontSize:"0.85rem",fontWeight:600,lineHeight:1.2}}>{tk.title}</div>
+            </div>;})}
+        </div>
+      </div>}
+      {days.length===0&&asapTasks.length===0&&<div style={{padding:40,textAlign:"center",color:T.t3,fontFamily:MO,fontSize:"0.6rem",letterSpacing:"0.08em"}}>NO UPCOMING EVENTS</div>}
       {days.map(({d,ds,dEv,dAl,dTk})=>{
         const it=$td(d);
         const dayLabel=DNF[d.getDay()].slice(0,3).toUpperCase();
@@ -1918,10 +1951,10 @@ function SchedV({T,date,events,tasks,cats,ac,setModal,MO,SE,setCd}){
                 </div>;})}
               {dTk.map(tk=>{const cat=cats[tk.category]||cats.other;
                 return <div key={tk.id} onClick={()=>setModal({type:"task",data:tk})}
-                  style={{background:cat.color,color:"#fff",borderRadius:4,padding:"10px 14px",marginBottom:4,cursor:"pointer",display:"flex",alignItems:"center",gap:8}}>
-                  <span style={{fontSize:"0.85rem",opacity:0.9}}>✓</span>
+                  style={{background:cat.color,color:"#fff",borderRadius:4,padding:"10px 14px",marginBottom:4,cursor:"pointer",display:"flex",alignItems:"center",gap:8,opacity:tk.done?0.55:1}}>
+                  <span style={{fontSize:"0.85rem",opacity:0.9}}>{tk.done?"✓":"○"}</span>
                   <div>
-                    <div style={{fontSize:"0.85rem",fontWeight:600,lineHeight:1.2}}>{tk.title}</div>
+                    <div style={{fontSize:"0.85rem",fontWeight:600,lineHeight:1.2,textDecoration:tk.done?"line-through":"none"}}>{tk.title}</div>
                     {tk.hasDueTime&&<div style={{fontSize:"0.72rem",opacity:0.85,marginTop:2}}>{$t(tk.dueHour,tk.dueMin||0)}</div>}
                   </div>
                 </div>;})}
@@ -1933,7 +1966,22 @@ function SchedV({T,date,events,tasks,cats,ac,setModal,MO,SE,setCd}){
 
   // Desktop: two-column layout
   return <div style={{flex:1,overflow:"auto",background:T.bg}}>
-    {days.length===0&&<div style={{padding:40,textAlign:"center",color:T.t3,fontFamily:MO,fontSize:"0.6rem",letterSpacing:"0.08em"}}>NO UPCOMING EVENTS</div>}
+    {asapTasks.length>0&&<div style={{display:"flex",borderBottom:`1px solid ${T.bd}`,minHeight:52,background:"rgba(249,115,22,0.03)"}}>
+      <div style={{width:140,flexShrink:0,padding:"14px 20px 14px 32px",borderRight:"1px solid rgba(249,115,22,0.2)"}}>
+        <div style={{fontFamily:MO,fontSize:"0.45rem",color:"#f97316",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:4}}>ASAP</div>
+        <div style={{fontFamily:MO,fontSize:"0.4rem",color:"#f97316",opacity:0.7}}>No date</div>
+      </div>
+      <div style={{flex:1,padding:"10px 32px 10px 20px"}}>
+        {asapTasks.map(tk=>{const cat=cats[tk.category]||cats.other;
+          return <div key={tk.id} onClick={()=>setModal({type:"task",data:tk})}
+            style={{display:"flex",alignItems:"center",gap:12,padding:"4px 0",cursor:"pointer"}}>
+            <div style={{width:10,height:10,borderRadius:2,border:`2px solid ${cat.color}`,flexShrink:0}}/>
+            <span style={{fontFamily:MO,fontSize:"0.52rem",color:"#f97316",width:80,flexShrink:0}}>ASAP</span>
+            <span style={{fontSize:"0.82rem",color:T.tx,fontWeight:400,opacity:0.85,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{tk.title}</span>
+          </div>;})}
+      </div>
+    </div>}
+    {days.length===0&&asapTasks.length===0&&<div style={{padding:40,textAlign:"center",color:T.t3,fontFamily:MO,fontSize:"0.6rem",letterSpacing:"0.08em"}}>NO UPCOMING EVENTS</div>}
     {days.map(({d,ds,dEv,dAl,dTk})=>{
       const it=$td(d);
       const allItems=[...dAl.map(e=>({...e,_kind:"allday"})),...dEv.map(e=>({...e,_kind:"event"})),...dTk.map(t=>({...t,_kind:"task"}))];
@@ -1972,10 +2020,10 @@ function SchedV({T,date,events,tasks,cats,ac,setModal,MO,SE,setCd}){
               </div>);
             return(
               <div key={item.id} onClick={()=>setModal({type:"task",data:item})}
-                style={{display:"flex",alignItems:"center",gap:12,padding:"4px 0",cursor:"pointer"}}>
-                <div style={{width:10,height:10,borderRadius:2,border:`2px solid ${cat.color}`,flexShrink:0}}/>
+                style={{display:"flex",alignItems:"center",gap:12,padding:"4px 0",cursor:"pointer",opacity:item.done?0.5:1}}>
+                <div style={{width:10,height:10,borderRadius:2,border:`2px solid ${cat.color}`,flexShrink:0,background:item.done?cat.color:"transparent"}}/>
                 <span style={{fontFamily:MO,fontSize:"0.52rem",color:T.t3,width:80,flexShrink:0,whiteSpace:"nowrap"}}>{item.hasDueTime?$t(item.dueHour,item.dueMin||0):"Task"}</span>
-                <span style={{fontSize:"0.82rem",color:T.tx,fontWeight:400,opacity:0.85,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.title}</span>
+                <span style={{fontSize:"0.82rem",color:T.tx,fontWeight:400,opacity:0.85,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",textDecoration:item.done?"line-through":"none"}}>{item.title}</span>
               </div>);
           })}
         </div>
@@ -2963,6 +3011,18 @@ function SettingsModal({T,MO,SE,settings,setSettings,onClose,events,tasks,exams,
           <option value="semester">Semester</option>
         </select>
       </div>
+      <div style={{marginBottom:12}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <label style={{fontFamily:MO,fontSize:"0.5rem",color:T.t3,letterSpacing:"0.08em",textTransform:"uppercase"}}>Show completed tasks on calendar</label>
+          <div onClick={()=>upS("showCompletedTasks",!settings.showCompletedTasks)}
+            style={{width:28,height:15,background:settings.showCompletedTasks?T.ac:T.b2,borderRadius:8,
+              border:`1px solid ${settings.showCompletedTasks?T.ac:T.bd}`,position:"relative",cursor:"pointer",flexShrink:0,transition:"all 0.2s"}}>
+            <div style={{width:9,height:9,background:settings.showCompletedTasks?T.bg:T.t3,borderRadius:"50%",position:"absolute",top:2,
+              left:settings.showCompletedTasks?16:3,transition:"left 0.2s"}}/>
+          </div>
+        </div>
+        <div style={{fontFamily:MO,fontSize:"0.42rem",color:T.t3,marginTop:3}}>Displays done tasks on week and schedule views with strikethrough</div>
+      </div>
       {/* Import/Export */}
       <div style={{borderTop:`1px solid ${T.bd}`,paddingTop:10,marginBottom:10}}>
         <div style={{fontFamily:MO,fontSize:"0.5rem",color:T.t3,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:6}}>Import / Export</div>
@@ -3547,6 +3607,8 @@ function TasksDashboard({T,MO,SE,tasks,cats,courses,aT,uT,dT,tT,pushUndo}){
             background:cb,color:cc,border:`1px solid ${hexToRgba(cc,0.25)}`,letterSpacing:"0.03em"}}>{cl}</span>
           {tk._urgent&&!tk.done&&<span style={{fontFamily:MO,fontSize:"0.44rem",padding:"2px 6px",borderRadius:10,
             background:hexToRgba(T.dg,0.12),color:T.dg,border:`1px solid ${hexToRgba(T.dg,0.25)}`}}>urgent</span>}
+          {!tk.date&&!tk.done&&<span style={{fontFamily:MO,fontSize:"0.44rem",padding:"2px 6px",borderRadius:10,
+            background:"rgba(249,115,22,0.12)",color:"#f97316",border:"1px solid rgba(249,115,22,0.25)"}}>ASAP</span>}
           {tk._est&&<span style={{fontFamily:MO,fontSize:"0.44rem",color:T.t3}}>⏱ {tk._est}</span>}
           {tk.date&&<span style={{fontFamily:MO,fontSize:"0.44rem",color:T.t2}}>📅 {tk.date}{tk.hasDueTime&&tk.dueHour!=null?` at ${$t(tk.dueHour,tk.dueMin||0)}`:""}</span>}
           {tk.detail&&<span style={{fontFamily:MO,fontSize:"0.44rem",color:T.t3,overflow:"hidden",
