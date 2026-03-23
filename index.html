@@ -348,6 +348,24 @@ function svForUser(uid,d){
 function clearUserStorage(uid){
   if(!uid)return;
   try{localStorage.removeItem(`${SK}:uid_${uid}`);}catch(e){}}
+// ── Backup helpers ──────────────────────────────────────────────────────────
+// Keeps up to 5 timestamped snapshots per user in localStorage so data can be
+// recovered if a sync bug (or future bug) overwrites good cloud data.
+function saveBackup(uid,data){
+  if(!uid||!data||!data._ts)return;
+  // Only worth saving if there is actual content to recover
+  if(!data.events?.length&&!data.tasks?.length&&!data.courses?.length)return;
+  try{
+    const key=`${SK}:backups:uid_${uid}`;
+    const prev=JSON.parse(localStorage.getItem(key)||'[]');
+    if(prev.length&&prev[0]._ts===data._ts)return; // deduplicate
+    localStorage.setItem(key,JSON.stringify([data,...prev].slice(0,5)));
+  }catch(e){}
+}
+function getBackups(uid){
+  if(!uid)return[];
+  try{return JSON.parse(localStorage.getItem(`${SK}:backups:uid_${uid}`)||'[]');}catch(e){return[];}
+}
 // Keep legacy ld/sv pointing to guest slot for any code that calls them without uid context
 function ld(){return ldForUser(null);}
 function sv(d){svForUser(null,d);}
@@ -403,7 +421,7 @@ function useFirebaseAuth(){
   return{user,loading,isGuest,signIn,signInGoogle,signInEmail,signUpEmail,continueAsGuest,signOut,deleteAccount};
 }
 
-function useFirestoreSync(user,localData,setters){
+function useFirestoreSync(user,_localData,setters){
   // syncRef: true while applying incoming cloud data — blocks outbound upload
   const syncRef=useRef(false);
   // cloudReadyRef: stays false until the initial Firestore fetch resolves.
@@ -411,13 +429,14 @@ function useFirestoreSync(user,localData,setters){
   // state on a fresh device from overwriting existing cloud data.
   const cloudReadyRef=useRef(false);
   const debounceRef=useRef(null);
-  const localDataRef=useRef(localData);
   const lastUploadTs=useRef(0); // track the _ts of the last upload we sent
-
-  useEffect(()=>{localDataRef.current=localData;});
 
   function applyCloud(cloud,isInitial){
     syncRef.current=true;
+    // Track the highest-seen cloud timestamp so stale onSnapshot deliveries
+    // (e.g. Firestore offline-persistence cache firing after cloudReadyRef goes true)
+    // are rejected by the echo-protection check instead of overwriting fresh data.
+    if(cloud._ts&&cloud._ts>lastUploadTs.current)lastUploadTs.current=cloud._ts;
     // Apply all source data first
     const newCourses=cloud.courses||[];
     const newSem=cloud.sem||"spring-2026";
@@ -443,7 +462,7 @@ function useFirestoreSync(user,localData,setters){
     // as default) so their useEffects never re-fire.
     const cloudUserEvents=(cloud.events||[]).filter(e=>
       !e._taskDueId&&!e._ohId&&
-      !(e._courseId&&!e._examId&&!e._studyBlock)&&
+      !(e._courseId&&!e._examId&&!e._studyBlock&&!e._courseOverride)&&
       e.category!=="_academic"&&e.category!=="_holidays"
     );
 
@@ -509,8 +528,11 @@ function useFirestoreSync(user,localData,setters){
     const docRef=FB_DB.collection("calendars").doc(user.uid);
     docRef.get().then(snap=>{
       if(snap.exists){
-        // Cloud has data — always prefer cloud on initial load
-        applyCloud(snap.data(),true);
+        const cloud=snap.data();
+        // Snapshot the authoritative cloud state BEFORE applying it so users can
+        // recover from any future sync mishap via Settings → Restore backup.
+        saveBackup(user.uid,cloud);
+        applyCloud(cloud,true);
       } else {
         // Brand new account — start with a clean slate, do NOT seed from localStorage
         // (localStorage may contain a previous user's data)
@@ -531,7 +553,7 @@ function useFirestoreSync(user,localData,setters){
       if(!cloud._ts)return;
       const localTs=lastUploadTs.current||0;
       // Only apply if cloud is meaningfully newer (500ms buffer avoids echo)
-      if(cloud._ts>localTs+500)applyCloud(cloud,false);
+      if(cloud._ts>localTs+500){saveBackup(user.uid,cloud);applyCloud(cloud,false);}
     });
     return unsub;
   },[user]);
@@ -543,7 +565,13 @@ function useFirestoreSync(user,localData,setters){
     debounceRef.current=setTimeout(()=>{uploadToFirestore(user.uid,data);},1500);
   },[user]);
 
-  return{upload};
+  const restoreFromBackup=useCallback((backup)=>{
+    // Apply the snapshot to all state and immediately write it to Firestore.
+    applyCloud(backup,false);
+    uploadToFirestore(user.uid,backup);
+  },[user]);
+
+  return{upload,restoreFromBackup};
 }
 
 function uploadToFirestore(uid,data){
@@ -767,11 +795,11 @@ function App(){
   // Derived events are always regenerated from their source data (tasks, officeHours, courses, PCAL).
   // Never persist them — doing so causes duplicates on reload and stale data across devices.
   const persistableEvents=useMemo(()=>events.filter(e=>
-    !e._taskDueId &&                              // regenerated from tasks
-    !e._ohId &&                                   // regenerated from officeHours
-    !(e._courseId&&!e._examId&&!e._studyBlock) && // regenerated from courses (keep exam+study blocks)
-    e.category!=="_academic" &&                   // regenerated from PCAL
-    e.category!=="_holidays"                      // regenerated from US_HOLIDAYS
+    !e._taskDueId &&                                            // regenerated from tasks
+    !e._ohId &&                                                 // regenerated from officeHours
+    !(e._courseId&&!e._examId&&!e._studyBlock&&!e._courseOverride) && // regenerated from courses (keep exam+study blocks+overrides)
+    e.category!=="_academic" &&                                 // regenerated from PCAL
+    e.category!=="_holidays"                                    // regenerated from US_HOLIDAYS
   ),[events]);
   // Task-due shadow events — computed fresh every render from tasks, never persisted.
   // Compute task-due shadow events and merge with real events every render.
@@ -787,7 +815,7 @@ function App(){
       detail:t.detail||"",_taskDueId:t.id,_allDay:false};
   });
   const allEvents=[...events.filter(e=>!e._taskDueId),..._taskDueEvs];
-  const{upload}=useFirestoreSync(user,{events:persistableEvents,tasks,courses,cats,sem,theme,showHolidays,settings,exams,assignments,officeHours},syncSetters);
+  const{upload,restoreFromBackup}=useFirestoreSync(user,{events:persistableEvents,tasks,courses,cats,sem,theme,showHolidays,settings,exams,assignments,officeHours},syncSetters);
 
   useEffect(()=>{setAc(p=>{const n=new Set(p);Object.keys(cats).forEach(k=>n.add(k));n.add("_holidays");n.add("_officehours");return n;});},[cats]);
   useEffect(()=>{
@@ -869,7 +897,25 @@ function App(){
     if(ev._recur&&ev._recur.type!=="none"){const all=genRecurring(ev);setEv(p=>[...p,...all]);}
     else setEv(p=>[...p,{...ev,id:gi()}]);
   };
-  const uE=(id,d)=>{pushUndo();setEv(p=>p.map(e=>e.id===id?{...e,...d}:e));};
+  const uE=(id,d)=>{
+    pushUndo();
+    const ev=events.find(e=>e.id===id);
+    // For raw course events (not exams, study blocks, or OH), persist the single-occurrence
+    // edit by cancelling the recurring occurrence in courses._cancelled (so genCourseEv
+    // skips it) and marking the edited event with _courseOverride:true so it is saved to
+    // persistableEvents and survives reload/cross-device sync instead of being regenerated.
+    if(ev&&ev._courseId&&ev._type&&!ev._examId&&!ev._studyBlock&&!ev._ohId){
+      setCo(p=>p.map(c=>{
+        if(c.id!==ev._courseId)return c;
+        // Idempotent: only add the cancellation if not already present
+        if((c._cancelled||[]).some(x=>x.date===ev.date&&x.type===ev._type))return c;
+        return{...c,_cancelled:[...(c._cancelled||[]),{date:ev.date,type:ev._type}]};
+      }));
+      setEv(p=>p.map(e=>e.id===id?{...e,...d,_courseOverride:true}:e));
+    } else {
+      setEv(p=>p.map(e=>e.id===id?{...e,...d}:e));
+    }
+  };
   const dE=(id)=>{pushUndo();
     // If the event is derived from source data, delete the source too so
     // the sync useEffects don't immediately recreate the calendar event.
@@ -991,7 +1037,7 @@ function App(){
   // Sync courses → recurring class schedule events
   useEffect(()=>{
     setEv(p=>{
-      const nonCourse=p.filter(e=>!e._courseId||e._examId||e._studyBlock||e._ohId);
+      const nonCourse=p.filter(e=>!e._courseId||e._examId||e._studyBlock||e._ohId||e._courseOverride);
       const gen=courses.flatMap(c=>genCourseEv(c,sem));
       return[...nonCourse,...gen];
     });
@@ -1207,7 +1253,8 @@ function App(){
     {modal&&modal.type==="_tapPreview"&&<TapPreviewSheet T={T} MO={MO} SE={SE} modal={modal} setModal={setModal} cats={cats}/>}
     {csOpen&&<CSModal T={T} MO={MO} SE={SE} courses={courses} sem={sem} onSave={saveCo} onClose={()=>setCsOpen(false)}/>}
     {settingsOpen&&<SettingsModal T={T} MO={MO} SE={SE} settings={settings} setSettings={setSettings} onClose={()=>setSettingsOpen(false)}
-      events={events} tasks={tasks} exams={exams} assignments={assignments} cats={cats} courses={courses} onImport={(imported)=>setEv(p=>[...p,...imported])}/>}
+      events={events} tasks={tasks} exams={exams} assignments={assignments} cats={cats} courses={courses} onImport={(imported)=>setEv(p=>[...p,...imported])}
+      user={user} onRestore={restoreFromBackup}/>}
     {studyBlockOpen&&<StudyBlockModal T={T} MO={MO} SE={SE} courses={courses} cats={cats}
       onSave={(sb)=>{
         const cat=cats[sb.courseId]||cats.personal;
@@ -2859,10 +2906,26 @@ function parseICS(text){
   return events;
 }
 
-function SettingsModal({T,MO,SE,settings,setSettings,onClose,events,tasks,exams,assignments,cats,courses,onImport}){
+function SettingsModal({T,MO,SE,settings,setSettings,onClose,events,tasks,exams,assignments,cats,courses,onImport,user,onRestore}){
   const upS=(k,v)=>{setSettings(p=>({...p,[k]:v}));if(k==="defaultView")try{v?localStorage.setItem("tc_defaultView",v):localStorage.removeItem("tc_defaultView");}catch(e){}};
   const IS={background:T.ib,border:`1px solid ${T.ibd}`,borderRadius:5,padding:"5px 8px",color:T.tx,fontFamily:"'DM Sans',sans-serif",fontSize:"0.78rem",outline:"none",WebkitAppearance:"none",cursor:"pointer",width:"100%"};
   const fileRef=useRef(null);
+  const[confirmRestore,setConfirmRestore]=useState(null); // index of backup pending confirmation
+  const backups=user?getBackups(user.uid):[];
+  const fmtBackupDate=(ts)=>{
+    const d=new Date(ts),now=new Date();
+    const diffMs=now-d,diffDays=Math.floor(diffMs/86400000);
+    const time=d.toLocaleTimeString([],{hour:"numeric",minute:"2-digit"});
+    if(diffDays===0)return`Today at ${time}`;
+    if(diffDays===1)return`Yesterday at ${time}`;
+    if(diffDays<7)return`${d.toLocaleDateString([],{weekday:"short",month:"short",day:"numeric"})} at ${time}`;
+    return`${d.toLocaleDateString([],{month:"short",day:"numeric",year:"numeric"})} at ${time}`;
+  };
+  const fmtBackupSummary=(b)=>{
+    const ev=(b.events||[]).filter(e=>!e._taskDueId&&!e._ohId&&!(e._courseId&&!e._examId&&!e._studyBlock&&!e._courseOverride)&&e.category!=="_academic"&&e.category!=="_holidays").length;
+    const tk=(b.tasks||[]).length,co=(b.courses||[]).length;
+    return[co&&`${co} course${co!==1?"s":""}`,ev&&`${ev} event${ev!==1?"s":""}`,tk&&`${tk} task${tk!==1?"s":""}`].filter(Boolean).join(", ")||"empty";
+  };
   const handleImport=(e)=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=(ev)=>{
     const imported=parseICS(ev.target.result);if(imported.length>0){onImport(imported);alert(`Imported ${imported.length} events!`);}else alert("No events found in file.");
   };r.readAsText(f);};
@@ -2912,6 +2975,24 @@ function SettingsModal({T,MO,SE,settings,setSettings,onClose,events,tasks,exams,
           Export by course (separate calendars)</button>
         <div style={{fontFamily:MO,fontSize:"0.42rem",color:T.t3,marginTop:4}}>Separate calendars import into Google Calendar as individual sub‑calendars with their own colors</div>
       </div>
+      {user&&<div style={{borderTop:`1px solid ${T.bd}`,paddingTop:10,marginBottom:10}}>
+        <div style={{fontFamily:MO,fontSize:"0.5rem",color:T.t3,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:6}}>Data Backups</div>
+        {backups.length===0
+          ?<div style={{fontFamily:MO,fontSize:"0.58rem",color:T.t3}}>No backups yet — one is saved each time your data loads from the server.</div>
+          :backups.map((b,i)=><div key={b._ts} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"5px 0",borderBottom:i<backups.length-1?`1px solid ${T.bd}40`:"none"}}>
+            <div>
+              <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:"0.72rem",color:T.tx}}>{fmtBackupDate(b._ts)}</div>
+              <div style={{fontFamily:MO,fontSize:"0.48rem",color:T.t3,marginTop:1}}>{fmtBackupSummary(b)}</div>
+            </div>
+            {confirmRestore===i
+              ?<div style={{display:"flex",gap:4}}>
+                <button onClick={()=>{onRestore(b);setConfirmRestore(null);onClose();}} style={{padding:"3px 8px",borderRadius:4,border:"none",background:"#ef4444",color:"#fff",cursor:"pointer",fontFamily:MO,fontSize:"0.52rem",fontWeight:600}}>Restore</button>
+                <button onClick={()=>setConfirmRestore(null)} style={{padding:"3px 8px",borderRadius:4,border:`1px solid ${T.bd}`,background:"transparent",color:T.t3,cursor:"pointer",fontFamily:MO,fontSize:"0.52rem"}}>Cancel</button>
+              </div>
+              :<button onClick={()=>setConfirmRestore(i)} style={{padding:"3px 10px",borderRadius:4,border:`1px solid ${T.bd}`,background:"transparent",color:T.t2,cursor:"pointer",fontFamily:MO,fontSize:"0.52rem",whiteSpace:"nowrap"}}>Restore</button>}
+          </div>)}
+        <div style={{fontFamily:MO,fontSize:"0.44rem",color:T.t3,marginTop:5}}>Restoring replaces your current data with the snapshot. Your current data will be overwritten.</div>
+      </div>}
       <div style={{display:"flex",justifyContent:"flex-end"}}>
         <button onClick={onClose} style={{padding:"5px 14px",borderRadius:6,border:"none",background:T.ac,color:T.bg,cursor:"pointer",fontSize:"0.76rem",fontWeight:600}}>Done</button>
       </div>
