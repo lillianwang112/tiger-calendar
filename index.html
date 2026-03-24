@@ -3416,7 +3416,7 @@ function TasksDashboard({T,MO,SE,tasks,cats,courses,aT,uT,dT,tT,pushUndo}){
   const[nDueHour,setNDueHour]=useState(23);
   const[nDueMin,setNDueMin]=useState(59);
   const[nCat,setNCat]=useState(dashCats[0]?.key||"other");
-  const[nCourse,setNCourse]=useState("");
+  const[nCourse,setNCourse]=useState(courses&&courses[0]?.id||"");
   const[nUrgent,setNUrgent]=useState(false);
   const[nEst,setNEst]=useState("");
   const[nEstManual,setNEstManual]=useState(false);
@@ -3515,7 +3515,7 @@ function TasksDashboard({T,MO,SE,tasks,cats,courses,aT,uT,dT,tT,pushUndo}){
       hasDueTime:nHasDueTime,dueHour:nHasDueTime?+nDueHour:undefined,dueMin:nHasDueTime?+nDueMin:undefined,
       category:resolveCatVal(nCat,nCourse),_dashCat:nCat,_urgent:nUrgent,_est:nEst,detail:nNote,done:false});
     setNTitle("");setNDue("");setNHasDueTime(false);setNDueHour(23);setNDueMin(59);
-    setNUrgent(false);setNEst("");setNNote("");setAddOpen(false);
+    setNUrgent(false);setNEst("");setNNote("");setNCourse(courses&&courses[0]?.id||"");setAddOpen(false);
   };
 
   // ── Category manager actions ──
