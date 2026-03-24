@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>TigerCalendar</title>
 <meta name="description" content="TigerCalendar — a calendar and task manager for Princeton students">
 <meta name="theme-color" content="#5c4db3">
@@ -4228,6 +4228,128 @@ function CatModal({T,MO,SE,cats,setCats,setModal}){
   </div>;
 }
 
+// ═══ RICH NOTES — link detection + insert ═══
+// Storage format: plain text, with [label](url) for named links. Bare URLs auto-detected too.
+function parseNotes(text){
+  if(!text)return[];
+  // Match [label](url) OR bare https?:// URLs
+  const re=/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s<>"')\]]+)/g;
+  const parts=[];let last=0,m;
+  while((m=re.exec(text))!==null){
+    if(m.index>last)parts.push({type:"text",text:text.slice(last,m.index)});
+    if(m[1]&&m[2])parts.push({type:"link",label:m[1],url:m[2]});
+    else parts.push({type:"link",label:m[3],url:m[3]});
+    last=m.index+m[0].length;
+  }
+  if(last<text.length)parts.push({type:"text",text:text.slice(last)});
+  return parts;
+}
+
+function RenderNotes({text,T,style={},inline=false}){
+  if(!text)return null;
+  const parts=parseNotes(text);
+  const Tag=inline?"span":"div";
+  return <Tag style={{whiteSpace:"pre-wrap",wordBreak:"break-word",...style}}>
+    {parts.map((p,i)=>p.type==="text"
+      ?<span key={i}>{p.text}</span>
+      :<a key={i} href={p.url} target="_blank" rel="noopener noreferrer"
+          onClick={e=>e.stopPropagation()}
+          style={{color:T.ac,textDecoration:"underline",textDecorationStyle:"dotted",
+            textUnderlineOffset:2,cursor:"pointer",fontWeight:500,wordBreak:"break-all"}}>
+          {p.label}
+        </a>
+    )}
+  </Tag>;
+}
+
+function NotesField({value,onChange,placeholder,T,MO,IS,minHeight=45}){
+  const[linkOpen,setLinkOpen]=useState(false);
+  const[linkUrl,setLinkUrl]=useState("");
+  const[linkLabel,setLinkLabel]=useState("");
+  const textareaRef=useRef(null);
+  const hasLinks=parseNotes(value).some(p=>p.type==="link");
+
+  const insertLink=()=>{
+    const url=linkUrl.trim();
+    if(!url)return;
+    const label=linkLabel.trim()||url;
+    const insert=`[${label}](${url})`;
+    const ta=textareaRef.current;
+    if(ta){
+      const start=ta.selectionStart,end=ta.selectionEnd;
+      const next=value.slice(0,start)+insert+value.slice(end);
+      onChange(next);
+      // restore cursor after insert
+      setTimeout(()=>{ta.focus();ta.setSelectionRange(start+insert.length,start+insert.length);},0);
+    } else {
+      onChange((value?value+" ":"")+insert);
+    }
+    setLinkUrl("");setLinkLabel("");setLinkOpen(false);
+  };
+
+  return <div>
+    {/* Toolbar */}
+    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}>
+      <div style={{display:"flex",gap:4,alignItems:"center"}}>
+        <button type="button" onClick={()=>{setLinkOpen(p=>!p);setLinkUrl("");setLinkLabel("");}}
+          title="Insert link"
+          style={{display:"flex",alignItems:"center",gap:4,padding:"2px 8px",borderRadius:4,
+            border:`1px solid ${linkOpen?T.ac:T.bd}`,background:linkOpen?`${T.ac}14`:"transparent",
+            color:linkOpen?T.ac:T.t2,cursor:"pointer",fontFamily:MO,fontSize:"0.46rem",
+            letterSpacing:"0.04em",lineHeight:1.8}}>
+          🔗 Link
+        </button>
+        {hasLinks&&<span style={{fontFamily:MO,fontSize:"0.42rem",color:T.t3,letterSpacing:"0.04em"}}>
+          links active
+        </span>}
+      </div>
+    </div>
+    {/* Link popover */}
+    {linkOpen&&<div style={{background:T.b2,border:`1px solid ${T.ac}40`,borderRadius:7,
+      padding:"10px 12px",marginBottom:6,display:"flex",flexDirection:"column",gap:6}}>
+      <div style={{display:"flex",gap:6}}>
+        <div style={{flex:2}}>
+          <div style={{fontFamily:MO,fontSize:"0.44rem",color:T.t3,textTransform:"uppercase",
+            letterSpacing:"0.07em",marginBottom:3}}>URL</div>
+          <input value={linkUrl} onChange={e=>setLinkUrl(e.target.value)}
+            onKeyDown={e=>e.key==="Enter"&&insertLink()}
+            placeholder="https://…" autoFocus
+            style={{...IS,fontSize:"0.76rem",padding:"4px 8px"}}/>
+        </div>
+        <div style={{flex:1}}>
+          <div style={{fontFamily:MO,fontSize:"0.44rem",color:T.t3,textTransform:"uppercase",
+            letterSpacing:"0.07em",marginBottom:3}}>Display text <span style={{opacity:0.5}}>(optional)</span></div>
+          <input value={linkLabel} onChange={e=>setLinkLabel(e.target.value)}
+            onKeyDown={e=>e.key==="Enter"&&insertLink()}
+            placeholder="Canvas, Ed, …"
+            style={{...IS,fontSize:"0.76rem",padding:"4px 8px"}}/>
+        </div>
+      </div>
+      <div style={{display:"flex",gap:5,justifyContent:"flex-end"}}>
+        <button type="button" onClick={()=>setLinkOpen(false)}
+          style={{padding:"3px 10px",borderRadius:5,border:`1px solid ${T.bd}`,background:"transparent",
+            color:T.t3,cursor:"pointer",fontFamily:MO,fontSize:"0.46rem"}}>Cancel</button>
+        <button type="button" onClick={insertLink} disabled={!linkUrl.trim()}
+          style={{padding:"3px 12px",borderRadius:5,border:"none",
+            background:linkUrl.trim()?T.ac:T.b2,color:linkUrl.trim()?T.bg:T.t3,
+            cursor:linkUrl.trim()?"pointer":"default",fontFamily:MO,fontSize:"0.46rem",fontWeight:600}}>
+          Insert
+        </button>
+      </div>
+    </div>}
+    {/* Textarea */}
+    <textarea ref={textareaRef} value={value} onChange={e=>onChange(e.target.value)}
+      placeholder={placeholder}
+      style={{...IS,minHeight,resize:"vertical",lineHeight:1.4}}/>
+    {/* Live preview if any links present */}
+    {hasLinks&&<div style={{marginTop:5,padding:"5px 8px",borderRadius:5,
+      background:T.b2,border:`1px solid ${T.bd}33`,fontSize:"0.72rem",color:T.t2}}>
+      <span style={{fontFamily:MO,fontSize:"0.42rem",color:T.t3,marginRight:6}}>PREVIEW</span>
+      <RenderNotes text={value} T={T} inline={true} style={{display:"inline",fontSize:"0.72rem"}}/>
+    </div>}
+  </div>;
+}
+
 // ═══ EVENT/TASK MODAL ═══
 function EModal({T,modal,setModal,aE,uE,dE,dSB,aT,uT,dT,cats,MO,SE}){
   const isEd=!!modal.data;const[tp,setTp]=useState(modal.type);const pf=modal.prefill||{};
@@ -4417,12 +4539,10 @@ function EModal({T,modal,setModal,aE,uE,dE,dSB,aT,uT,dT,cats,MO,SE}){
           </div>
         </div>
         <div style={{marginBottom:10}}><label style={LS}>Details <span style={{opacity:0.5,fontFamily:"sans-serif",textTransform:"none",letterSpacing:0}}>(optional)</span></label>
-          <textarea value={det} onChange={e=>setDet(e.target.value)} placeholder="Instructions, links, notes…"
-            style={{...IS,minHeight:36,resize:"vertical",lineHeight:1.3}}/></div>
+          <NotesField value={det} onChange={setDet} placeholder="Instructions, links, notes…" T={T} MO={MO} IS={IS} minHeight={36}/></div>
       </>}
       {tp==="event"&&<div style={{marginBottom:10}}><label style={LS}>Notes</label>
-        <textarea value={det} onChange={e=>setDet(e.target.value)} placeholder="Details, readings, links…"
-          style={{...IS,minHeight:45,resize:"vertical",lineHeight:1.4}}/></div>}
+        <NotesField value={det} onChange={setDet} placeholder="Details, readings, links…" T={T} MO={MO} IS={IS} minHeight={45}/></div>}
 
       <div style={{display:"flex",gap:7,justifyContent:"space-between"}}>
         <div style={{display:"flex",gap:5,alignItems:"center",flexWrap:"wrap"}}>{isEd&&<button onClick={handleDel} style={{padding:"5px 12px",borderRadius:6,border:`1px solid ${T.dg}`,
@@ -4583,6 +4703,7 @@ function TasksDashboard({T,MO,SE,tasks,cats,courses,aT,uT,dT,tT,pushUndo}){
     if(dashCatKey==="coursework")return courseId||"other";
     return dashCatKey;
   };
+  const[editMode,setEditMode]=useState(false); // false = view, true = edit
   const openEdit=(tk)=>{
     setETitle(tk.title);setEDue(tk.date||"");
     setEHasDueTime(!!tk.hasDueTime);setEDueHour(tk.dueHour??23);setEDueMin(tk.dueMin??59);
@@ -4593,9 +4714,10 @@ function TasksDashboard({T,MO,SE,tasks,cats,courses,aT,uT,dT,tT,pushUndo}){
     setEEst(savedEst);
     setEEstManual(!!savedEst&&!EST_OPTS.includes(savedEst));
     setENote(tk.detail||"");
+    setEditMode(false); // always open in view mode
     setEditModal(tk);
   };
-  const closeEdit=()=>setEditModal(null);
+  const closeEdit=()=>{setEditModal(null);setEditMode(false);};
   const saveEdit=()=>{
     if(!editModal||!eTitle.trim())return;
     uT(editModal.id,{title:eTitle.trim(),date:eDue||undefined,
@@ -4706,7 +4828,9 @@ function TasksDashboard({T,MO,SE,tasks,cats,courses,aT,uT,dT,tT,pushUndo}){
           {tk._est&&<span style={{fontFamily:MO,fontSize:"0.52rem",color:T.t3}}>⏱ {tk._est}</span>}
           {tk.date&&<span style={{fontFamily:MO,fontSize:"0.52rem",color:T.t2}}>📅 {tk.date}{tk.hasDueTime&&tk.dueHour!=null?` at ${$t(tk.dueHour,tk.dueMin||0)}`:""}</span>}
           {tk.detail&&<span style={{fontFamily:MO,fontSize:"0.52rem",color:T.t3,overflow:"hidden",
-            textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:220}}>{tk.detail}</span>}
+            textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:220}}>
+            <RenderNotes text={tk.detail} T={T} inline={true} style={{fontSize:"0.52rem",color:T.t3}}/>
+          </span>}
         </div>
       </div>
       <button onClick={e=>{e.stopPropagation();pushUndo();dT(tk.id);}} title="Delete"
@@ -4939,8 +5063,7 @@ function TasksDashboard({T,MO,SE,tasks,cats,courses,aT,uT,dT,tT,pushUndo}){
               style={{padding:"1px 6px",borderRadius:4,border:`1px solid ${T.bd}`,background:"transparent",
                 color:T.t3,cursor:"pointer",fontFamily:MO,fontSize:"0.42rem",lineHeight:1.6}}>⤢ expand</button>
           </div>
-          <textarea value={nNote} onChange={e=>setNNote(e.target.value)} placeholder="Links, context, instructions…"
-            rows={4} style={{...IS2,resize:"vertical",lineHeight:1.5}}/>
+          <NotesField value={nNote} onChange={setNNote} placeholder="Links, context, instructions…" T={T} MO={MO} IS={IS2} minHeight={80}/>
         </div>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
           <UrgToggle val={nUrgent} set={setNUrgent}/>
@@ -5020,67 +5143,126 @@ function TasksDashboard({T,MO,SE,tasks,cats,courses,aT,uT,dT,tT,pushUndo}){
       </div>}
     </div>
 
-    {/* Task Edit Modal */}
+    {/* Task Modal — view mode on tap, edit on explicit button */}
     {editModal&&<div onClick={e=>{if(e.target===e.currentTarget)closeEdit();}}
       style={{position:"fixed",inset:0,background:T.ov,zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
       <div style={{background:T.b3,border:`1px solid ${T.bd}`,borderRadius:12,padding:20,
         width:"100%",maxWidth:440,display:"flex",flexDirection:"column",gap:12}}>
-        <div style={{fontFamily:SE,fontSize:"1rem",color:T.tx,fontWeight:400}}>Edit Task</div>
-        <div><FieldLabel>Title</FieldLabel>
-          <input value={eTitle} onChange={e=>setETitle(e.target.value)} style={IS2} autoFocus/></div>
-        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-          <CatSelect val={eCat} set={setECat} courses={courses} courseVal={eCourse} setCourse={setECourse}/>
-        </div>
-        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-          <div style={{flex:1}}><FieldLabel>Due Date</FieldLabel>
-            <input type="date" value={eDue} onChange={e=>setEDue(e.target.value)} style={IS2}/></div>
-          <div style={{flex:"1 1 140px"}}>
-            <FieldLabel>Due Time</FieldLabel>
-            <div style={{display:"flex",alignItems:"center",gap:5,height:32}}>
-              <div onClick={()=>setEHasDueTime(p=>!p)} style={{width:28,height:15,background:eHasDueTime?T.ac:T.b2,borderRadius:8,
-                border:`1px solid ${eHasDueTime?T.ac:T.bd}`,position:"relative",cursor:"pointer",flexShrink:0,transition:"all 0.2s"}}>
-                <div style={{width:9,height:9,background:eHasDueTime?T.bg:T.t3,borderRadius:"50%",position:"absolute",top:2,
-                  left:eHasDueTime?16:3,transition:"left 0.2s"}}/></div>
-              {eHasDueTime&&<div style={{display:"flex",gap:3,alignItems:"center"}}>
-                <select value={eDueHour} onChange={e=>setEDueHour(+e.target.value)}
-                  style={{...IS2,padding:"3px 4px",fontSize:"0.7rem",width:"auto"}}>{hO}</select>
-                <MinPick value={eDueMin} onChange={setEDueMin}/>
-              </div>}
+
+        {!editMode?<>
+          {/* ── VIEW MODE — no inputs, no keyboard ── */}
+          <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8}}>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontFamily:SE,fontSize:"1.15rem",color:T.tx,lineHeight:1.3,wordBreak:"break-word",
+                textDecoration:editModal.done?"line-through":"none",opacity:editModal.done?0.55:1}}>
+                {editModal.title}
+              </div>
+              {editModal._urgent&&<span style={{display:"inline-block",marginTop:5,fontFamily:MO,fontSize:"0.5rem",
+                padding:"2px 8px",borderRadius:8,background:hexToRgba(T.dg,0.12),color:T.dg,
+                border:`1px solid ${hexToRgba(T.dg,0.25)}`}}>urgent</span>}
             </div>
-          </div>
-          <div style={{flex:1}}>
-            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}>
-              <FieldLabel>Est. Time</FieldLabel>
-              <button onClick={()=>{setEEstManual(p=>{if(p&&!EST_OPTS.includes(eEst))setEEst("");return!p;});}} title={eEstManual?"Use presets":"Enter manually"}
-                style={{padding:"1px 6px",borderRadius:4,border:`1px solid ${T.bd}`,background:eEstManual?T.ac:"transparent",
-                  color:eEstManual?T.bg:T.t3,cursor:"pointer",fontFamily:MO,fontSize:"0.42rem",letterSpacing:"0.04em",lineHeight:1.6}}>
-                {eEstManual?"preset":"custom"}
+            <div style={{display:"flex",gap:5,flexShrink:0}}>
+              <button onClick={()=>{tT(editModal.id);setEditModal(p=>({...p,done:!p.done}));}}
+                title={editModal.done?"Mark undone":"Mark done"}
+                style={{padding:"4px 10px",borderRadius:6,border:`1px solid ${T.bd}`,background:"transparent",
+                  color:editModal.done?T.ac:T.t2,cursor:"pointer",fontFamily:MO,fontSize:"0.5rem"}}>
+                {editModal.done?"↩ Undo":"✓ Done"}
               </button>
+              <button onClick={closeEdit}
+                style={{background:"none",border:"none",cursor:"pointer",color:T.t3,fontSize:"1.1rem",lineHeight:1,padding:"2px 4px"}}>✕</button>
             </div>
-            {eEstManual
-              ?<input value={eEst} onChange={e=>setEEst(e.target.value)} placeholder="e.g. 1.5 hr, 45 min" style={IS2}/>
-              :<select value={eEst} onChange={e=>setEEst(e.target.value)} style={IS2}>
-                {EST_OPTS.map(o=><option key={o} value={o}>{o||"— none —"}</option>)}
-              </select>}
           </div>
-        </div>
-        <div>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}>
-            <FieldLabel>Notes</FieldLabel>
-            <button onClick={()=>setExpandNote("edit")} title="Expand notes"
-              style={{padding:"1px 6px",borderRadius:4,border:`1px solid ${T.bd}`,background:"transparent",
-                color:T.t3,cursor:"pointer",fontFamily:MO,fontSize:"0.42rem",lineHeight:1.6}}>⤢ expand</button>
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {(()=>{const cc=cats[editModal.category]||cats.personal;return<div style={{display:"flex",alignItems:"center",gap:7}}>
+              <div style={{width:9,height:9,borderRadius:"50%",background:cc?.color||T.ac,flexShrink:0}}/>
+              <span style={{fontFamily:MO,fontSize:"0.52rem",color:T.t2}}>{cc?.label||editModal.category}</span>
+            </div>;})()}
+            {editModal.date&&<div style={{display:"flex",gap:7,alignItems:"center"}}>
+              <span style={{fontFamily:MO,fontSize:"0.52rem",color:T.t3}}>📅</span>
+              <span style={{fontFamily:MO,fontSize:"0.52rem",color:T.t2}}>{editModal.date}
+                {editModal.hasDueTime&&editModal.dueHour!=null&&<> at {$t(editModal.dueHour,editModal.dueMin||0)}</>}
+              </span>
+            </div>}
+            {editModal._est&&<div style={{display:"flex",gap:7,alignItems:"center"}}>
+              <span style={{fontFamily:MO,fontSize:"0.52rem",color:T.t3}}>⏱</span>
+              <span style={{fontFamily:MO,fontSize:"0.52rem",color:T.t2}}>{editModal._est}</span>
+            </div>}
+            {editModal.detail&&<div style={{background:T.b2,borderRadius:7,padding:"10px 12px",border:`1px solid ${T.bd}`}}>
+              <RenderNotes text={editModal.detail} T={T} style={{fontSize:"0.82rem",color:T.tx,lineHeight:1.65}}/>
+            </div>}
           </div>
-          <textarea value={eNote} onChange={e=>setENote(e.target.value)} rows={4}
-            style={{...IS2,resize:"vertical",lineHeight:1.5}}/>
-        </div>
-        <UrgToggle val={eUrgent} set={setEUrgent}/>
-        <div style={{display:"flex",gap:8,justifyContent:"flex-end",borderTop:`1px solid ${T.bd}`,paddingTop:10,marginTop:2}}>
-          <button onClick={closeEdit} style={{padding:"6px 16px",borderRadius:6,border:`1px solid ${T.bd}`,
-            background:"transparent",color:T.t2,cursor:"pointer",fontFamily:MO,fontSize:"0.52rem"}}>Cancel</button>
-          <button onClick={saveEdit} style={{padding:"6px 18px",borderRadius:6,border:"none",
-            background:T.ac,color:T.bg,cursor:"pointer",fontFamily:MO,fontSize:"0.56rem",fontWeight:600}}>Save</button>
-        </div>
+          <div style={{display:"flex",gap:7,justifyContent:"space-between",borderTop:`1px solid ${T.bd}`,paddingTop:10}}>
+            <button onClick={()=>{pushUndo();dT(editModal.id);closeEdit();}}
+              style={{padding:"6px 14px",borderRadius:6,border:`1px solid ${T.dg}`,
+                background:`${T.dg}10`,color:T.dg,cursor:"pointer",fontFamily:MO,fontSize:"0.52rem"}}>
+              Delete
+            </button>
+            <button onClick={()=>setEditMode(true)}
+              style={{padding:"6px 22px",borderRadius:6,border:"none",background:T.ac,color:T.bg,
+                cursor:"pointer",fontFamily:MO,fontSize:"0.56rem",fontWeight:600}}>
+              Edit
+            </button>
+          </div>
+        </>:<>
+          {/* ── EDIT MODE ── */}
+          <div style={{fontFamily:SE,fontSize:"1rem",color:T.tx,fontWeight:400}}>Edit Task</div>
+          <div><FieldLabel>Title</FieldLabel>
+            <input value={eTitle} onChange={e=>setETitle(e.target.value)} style={{...IS2,fontSize:"1rem"}} autoFocus/></div>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+            <CatSelect val={eCat} set={setECat} courses={courses} courseVal={eCourse} setCourse={setECourse}/>
+          </div>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+            <div style={{flex:1}}><FieldLabel>Due Date</FieldLabel>
+              <input type="date" value={eDue} onChange={e=>setEDue(e.target.value)} style={{...IS2,fontSize:"1rem"}}/></div>
+            <div style={{flex:"1 1 140px"}}>
+              <FieldLabel>Due Time</FieldLabel>
+              <div style={{display:"flex",alignItems:"center",gap:5,height:32}}>
+                <div onClick={()=>setEHasDueTime(p=>!p)} style={{width:28,height:15,background:eHasDueTime?T.ac:T.b2,borderRadius:8,
+                  border:`1px solid ${eHasDueTime?T.ac:T.bd}`,position:"relative",cursor:"pointer",flexShrink:0,transition:"all 0.2s"}}>
+                  <div style={{width:9,height:9,background:eHasDueTime?T.bg:T.t3,borderRadius:"50%",position:"absolute",top:2,
+                    left:eHasDueTime?16:3,transition:"left 0.2s"}}/></div>
+                {eHasDueTime&&<div style={{display:"flex",gap:3,alignItems:"center"}}>
+                  <select value={eDueHour} onChange={e=>setEDueHour(+e.target.value)}
+                    style={{...IS2,padding:"3px 4px",fontSize:"1rem",width:"auto"}}>{hO}</select>
+                  <MinPick value={eDueMin} onChange={setEDueMin}/>
+                </div>}
+              </div>
+            </div>
+            <div style={{flex:1}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}>
+                <FieldLabel>Est. Time</FieldLabel>
+                <button onClick={()=>{setEEstManual(p=>{if(p&&!EST_OPTS.includes(eEst))setEEst("");return!p;});}}
+                  style={{padding:"1px 6px",borderRadius:4,border:`1px solid ${T.bd}`,background:eEstManual?T.ac:"transparent",
+                    color:eEstManual?T.bg:T.t3,cursor:"pointer",fontFamily:MO,fontSize:"0.42rem",letterSpacing:"0.04em",lineHeight:1.6}}>
+                  {eEstManual?"preset":"custom"}
+                </button>
+              </div>
+              {eEstManual
+                ?<input value={eEst} onChange={e=>setEEst(e.target.value)} placeholder="e.g. 1.5 hr, 45 min" style={{...IS2,fontSize:"1rem"}}/>
+                :<select value={eEst} onChange={e=>setEEst(e.target.value)} style={{...IS2,fontSize:"1rem"}}>
+                  {EST_OPTS.map(o=><option key={o} value={o}>{o||"— none —"}</option>)}
+                </select>}
+            </div>
+          </div>
+          <div>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}>
+              <FieldLabel>Notes</FieldLabel>
+              <button onClick={()=>setExpandNote("edit")}
+                style={{padding:"1px 6px",borderRadius:4,border:`1px solid ${T.bd}`,background:"transparent",
+                  color:T.t3,cursor:"pointer",fontFamily:MO,fontSize:"0.42rem",lineHeight:1.6}}>⤢ expand</button>
+            </div>
+            <NotesField value={eNote} onChange={setENote} placeholder="Links, context, instructions…" T={T} MO={MO} IS={IS2} minHeight={80}/>
+          </div>
+          <UrgToggle val={eUrgent} set={setEUrgent}/>
+          <div style={{display:"flex",gap:8,justifyContent:"space-between",borderTop:`1px solid ${T.bd}`,paddingTop:10}}>
+            <button onClick={()=>setEditMode(false)}
+              style={{padding:"6px 14px",borderRadius:6,border:`1px solid ${T.bd}`,
+                background:"transparent",color:T.t2,cursor:"pointer",fontFamily:MO,fontSize:"0.52rem"}}>← Back</button>
+            <button onClick={saveEdit}
+              style={{padding:"6px 20px",borderRadius:6,border:"none",background:T.ac,color:T.bg,
+                cursor:"pointer",fontFamily:MO,fontSize:"0.56rem",fontWeight:600}}>Save</button>
+          </div>
+        </>}
       </div>
     </div>}
 
@@ -5096,13 +5278,15 @@ function TasksDashboard({T,MO,SE,tasks,cats,courses,aT,uT,dT,tT,pushUndo}){
           <div style={{fontFamily:SE,fontSize:"1rem",color:T.tx,fontWeight:400}}>Notes</div>
           <button onClick={()=>setExpandNote(null)} style={{background:"none",border:"none",cursor:"pointer",color:T.t3,fontSize:"1rem",lineHeight:1,padding:"2px 4px"}}>✕</button>
         </div>
-        <textarea value={expandNote==="add"?nNote:eNote}
-          onChange={e=>{if(expandNote==="add")setNNote(e.target.value);else setENote(e.target.value);}}
+        <NotesField
+          value={expandNote==="add"?nNote:eNote}
+          onChange={v=>{if(expandNote==="add")setNNote(v);else setENote(v);}}
           placeholder="Links, context, instructions…"
-          autoFocus
-          style={{width:"100%",minHeight:300,padding:"12px",borderRadius:6,border:`1px solid ${T.bd}`,
+          T={T} MO={MO}
+          IS={{width:"100%",padding:"12px",borderRadius:6,border:`1px solid ${T.bd}`,
             background:T.ib,color:T.tx,fontSize:"0.85rem",fontFamily:"'DM Sans',sans-serif",
-            resize:"vertical",lineHeight:1.6,outline:"none",boxSizing:"border-box"}}/>
+            resize:"vertical",lineHeight:1.6,outline:"none",boxSizing:"border-box"}}
+          minHeight={280}/>
         <div style={{display:"flex",justifyContent:"flex-end"}}>
           <button onClick={()=>setExpandNote(null)} style={{padding:"6px 18px",borderRadius:6,border:"none",
             background:T.ac,color:T.bg,cursor:"pointer",fontFamily:MO,fontSize:"0.56rem",fontWeight:600}}>Done</button>
