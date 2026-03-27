@@ -3044,7 +3044,7 @@ function parseICS(text){
 }
 
 // ═══ RICH TEXT EDITOR ═══
-function TextColorPicker({T,colors,onSelect,label,title}){
+function TextColorPicker({T,colors,onSelect,label,title,cols=5}){
   const[open,setOpen]=useState(false);
   const[pos,setPos]=useState({top:0,left:0});
   const btnRef=useRef(null);
@@ -3052,10 +3052,9 @@ function TextColorPicker({T,colors,onSelect,label,title}){
     e.preventDefault();
     if(btnRef.current){
       const r=btnRef.current.getBoundingClientRect();
-      // 5 cols × 22px + 4 gaps × 4px + 16px padding = 142px dropdown width
-      const dropW=142;
+      const dropW=cols*26+16;
       let left=r.left;
-      if(left+dropW>window.innerWidth-8) left=Math.max(8,window.innerWidth-dropW-8);
+      if(left+dropW>window.innerWidth-8)left=Math.max(8,window.innerWidth-dropW-8);
       setPos({top:r.bottom+6,left});
     }
     setOpen(p=>!p);
@@ -3065,24 +3064,25 @@ function TextColorPicker({T,colors,onSelect,label,title}){
       style={{padding:"2px 5px",borderRadius:4,border:`1px solid ${T.bd}`,background:"transparent",
         color:T.tx,cursor:"pointer",fontSize:"0.78rem",height:28,flexShrink:0,
         display:"inline-flex",alignItems:"center",gap:2}}>
-      {label}<span style={{fontSize:"0.48rem",opacity:0.45,lineHeight:1}}>▾</span>
+      {label}<span style={{fontSize:"0.48rem",opacity:0.4,lineHeight:1}}>▾</span>
     </button>
     {open&&<>
       <div onMouseDown={e=>{e.preventDefault();setOpen(false);}} style={{position:"fixed",inset:0,zIndex:1999}}/>
       <div style={{position:"fixed",top:pos.top,left:pos.left,zIndex:2000,
-        background:T.b3,border:`1px solid ${T.bd}`,borderRadius:8,padding:8,
-        display:"grid",gridTemplateColumns:"repeat(5,22px)",gap:4,
-        boxShadow:"0 8px 24px rgba(0,0,0,0.2)"}}>
+        background:T.b3,border:`1px solid ${T.bd}`,borderRadius:10,padding:8,
+        display:"grid",gridTemplateColumns:`repeat(${cols},22px)`,gap:4,
+        boxShadow:"0 8px 28px rgba(0,0,0,0.22)"}}>
         {colors.map((c,i)=><div key={i}
           onMouseDown={e=>{e.preventDefault();onSelect(c);setOpen(false);}}
+          title={c==="transparent"?"None":c}
           style={{width:22,height:22,borderRadius:4,cursor:"pointer",
             background:c==="transparent"
               ?"linear-gradient(135deg,#ccc 25%,transparent 25%,transparent 75%,#ccc 75%),linear-gradient(135deg,#ccc 25%,transparent 25%,transparent 75%,#ccc 75%)"
               :c,
             backgroundSize:"8px 8px",backgroundPosition:"0 0,4px 4px",
-            border:"1px solid rgba(0,0,0,0.12)",transition:"transform 0.1s,outline 0.1s"}}
-          onMouseEnter={e=>e.currentTarget.style.outline="2px solid "+T.ac}
-          onMouseLeave={e=>e.currentTarget.style.outline="none"}
+            border:"1px solid rgba(0,0,0,0.14)",transition:"transform 0.1s,outline 0.1s,border 0.1s"}}
+          onMouseEnter={e=>{e.currentTarget.style.outline="2px solid "+T.ac;e.currentTarget.style.transform="scale(1.15)";}}
+          onMouseLeave={e=>{e.currentTarget.style.outline="none";e.currentTarget.style.transform="scale(1)";}}
         />)}
       </div>
     </>}
@@ -3094,14 +3094,40 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
   const savedRange=useRef(null);
   const resizingRef=useRef(null);
   const onChangeRef=useRef(onChange);
+  const tableBtnRef=useRef(null);
   const[showLink,setShowLink]=useState(false);
   const[showTable,setShowTable]=useState(false);
+  const[showFind,setShowFind]=useState(false);
+  const[showReplace,setShowReplace]=useState(false);
   const[linkUrl,setLinkUrl]=useState("");
-  const[tRows,setTRows]=useState(3);
-  const[tCols,setTCols]=useState(3);
+  const[tGrid,setTGrid]=useState({r:0,c:0});
+  const[tablePos,setTablePos]=useState({top:0,left:0});
   const[af,setAf]=useState({});
   const[selFontSize,setSelFontSize]=useState("14");
-  const FSIZES=["8","9","10","11","12","14","16","18","20","24","28","36"];
+  const[selFont,setSelFont]=useState("");
+  const[findQ,setFindQ]=useState("");
+  const[repQ,setRepQ]=useState("");
+  const[wordCount,setWordCount]=useState(0);
+  const[charCount,setCharCount]=useState(0);
+  const[linkTip,setLinkTip]=useState(null);
+  const FSIZES=["8","9","10","11","12","14","16","18","20","24","28","36","48","72"];
+  const FONTS=[
+    ["Sans-serif","'DM Sans',Arial,sans-serif"],
+    ["Serif","'DM Serif Display',Georgia,serif"],
+    ["Mono","'DM Mono','Courier New',monospace"],
+    ["Arial","Arial,Helvetica,sans-serif"],
+    ["Georgia","Georgia,serif"],
+    ["Times New Roman","'Times New Roman',Times,serif"],
+    ["Verdana","Verdana,sans-serif"],
+    ["Courier New","'Courier New',monospace"],
+  ];
+  const isDark=T.bg&&T.bg.length===7&&T.bg[0]==='#'&&
+    (parseInt(T.bg.slice(1,3),16)*299+parseInt(T.bg.slice(3,5),16)*587+parseInt(T.bg.slice(5,7),16)*114)/1000<140;
+  const outerBg=isDark?T.bg:"#ddd9d3";
+  const pageBg=T.b3;
+  const pageShadow=isDark?"0 2px 10px rgba(0,0,0,0.5)":"0 1px 3px rgba(0,0,0,0.1),0 6px 24px rgba(0,0,0,0.09)";
+  const pageColor=isDark?T.tx:"#202124";
+  const isME=window.innerWidth<640;
 
   useEffect(()=>{onChangeRef.current=onChange;},[onChange]);
   useEffect(()=>{if(editorRef.current)editorRef.current.innerHTML=initialValue||"";},[]);
@@ -3127,7 +3153,32 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
   const sty=()=>{try{document.execCommand('styleWithCSS',false,true);}catch(e){}};
   const saveRange=()=>{try{const s=window.getSelection();if(s&&s.rangeCount>0)savedRange.current=s.getRangeAt(0).cloneRange();}catch(e){}};
   const restoreRange=()=>{try{if(savedRange.current&&editorRef.current){editorRef.current.focus();const s=window.getSelection();s.removeAllRanges();s.addRange(savedRange.current);}}catch(e){editorRef.current?.focus();}};
-  const emit=()=>onChange(editorRef.current?.innerHTML||"");
+  const emit=()=>{
+    const html=editorRef.current?.innerHTML||"";
+    onChange(html);
+    const text=editorRef.current?.textContent||"";
+    setWordCount(text.trim()?text.trim().split(/\s+/).length:0);
+    setCharCount(text.length);
+  };
+  const updLinkTip=()=>{
+    try{
+      const sel=window.getSelection();
+      if(sel&&sel.rangeCount>0){
+        let nd=sel.getRangeAt(0).startContainer;
+        if(nd.nodeType===3)nd=nd.parentElement;
+        const a=nd?.closest('a[href]');
+        if(a&&editorRef.current?.contains(a)){
+          const r=a.getBoundingClientRect();
+          const dw=300;
+          let left=r.left;
+          if(left+dw>window.innerWidth-8)left=Math.max(8,window.innerWidth-dw-8);
+          setLinkTip({href:a.getAttribute('href'),rect:r,left,el:a});
+          return;
+        }
+      }
+    }catch(e){}
+    setLinkTip(null);
+  };
   const updAf=()=>{
     try{
       sty();
@@ -3136,9 +3187,12 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
         italic:document.queryCommandState("italic"),
         underline:document.queryCommandState("underline"),
         strikeThrough:document.queryCommandState("strikeThrough"),
+        superscript:document.queryCommandState("superscript"),
+        subscript:document.queryCommandState("subscript"),
         justifyLeft:document.queryCommandState("justifyLeft"),
         justifyCenter:document.queryCommandState("justifyCenter"),
         justifyRight:document.queryCommandState("justifyRight"),
+        justifyFull:document.queryCommandState("justifyFull"),
         insertUnorderedList:document.queryCommandState("insertUnorderedList"),
         insertOrderedList:document.queryCommandState("insertOrderedList"),
       });
@@ -3147,17 +3201,21 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
         let nd=sel.getRangeAt(0).startContainer;
         if(nd.nodeType===3)nd=nd.parentElement;
         if(nd&&editorRef.current?.contains(nd)){
-          const px=parseFloat(window.getComputedStyle(nd).fontSize);
+          const cs=window.getComputedStyle(nd);
+          const px=parseFloat(cs.fontSize);
           if(!isNaN(px))setSelFontSize(String(Math.round(px)));
+          const ff=cs.fontFamily||"";
+          const fm=FONTS.find(([n,v])=>ff.toLowerCase().includes(v.split(',')[0].replace(/'/g,'').toLowerCase()));
+          setSelFont(fm?fm[1]:"");
         }
       }
+      updLinkTip();
     }catch(e){}
   };
   const exec=(cmd,val=null)=>{restoreRange();sty();document.execCommand(cmd,false,val);emit();updAf();};
 
   const applyFontSize=(px)=>{
     restoreRange();sty();
-    // Use size=7 as placeholder then swap in a styled span
     document.execCommand('fontSize',false,'7');
     if(editorRef.current){
       editorRef.current.querySelectorAll('font[size="7"]').forEach(font=>{
@@ -3169,19 +3227,30 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
     }
     emit();setSelFontSize(String(px));
   };
-
-  const insertTable=()=>{
+  const applyFontFamily=(ff)=>{
+    restoreRange();sty();
+    document.execCommand('fontName',false,ff);
+    if(editorRef.current){
+      editorRef.current.querySelectorAll('font[face]').forEach(font=>{
+        const span=document.createElement('span');
+        span.style.fontFamily=font.getAttribute('face');
+        span.innerHTML=font.innerHTML;
+        font.parentNode.replaceChild(span,font);
+      });
+    }
+    emit();setSelFont(ff);
+  };
+  const insertTableGrid=(rows,cols)=>{
     restoreRange();
-    const r=Math.max(1,Math.min(20,tRows)),c=Math.max(1,Math.min(10,tCols));
-    let h='<br><table style="border-collapse:collapse;width:100%;margin:8px 0"><tbody>';
-    for(let ri=0;ri<r;ri++){h+='<tr>';
-      for(let ci=0;ci<c;ci++){
+    let h='<table style="border-collapse:collapse;width:100%;margin:10px 0;table-layout:fixed"><tbody>';
+    for(let ri=0;ri<rows;ri++){h+='<tr>';
+      for(let ci=0;ci<cols;ci++){
         const t=ri===0?'th':'td';
-        const s=`border:1px solid #888;padding:6px 10px;min-width:30px;text-align:left;${ri===0?"background:rgba(128,128,128,0.12);font-weight:600":""}`;
+        const s=`border:1px solid #9aa0a6;padding:8px 12px;text-align:left;${ri===0?"background:rgba(128,128,128,0.1);font-weight:600":""}`;
         h+=`<${t} style="${s}"> </${t}>`;}
       h+='</tr>';}
-    h+='</tbody></table><br>';
-    document.execCommand('insertHTML',false,h);emit();setShowTable(false);
+    h+='</tbody></table><p><br></p>';
+    document.execCommand('insertHTML',false,h);emit();setShowTable(false);setTGrid({r:0,c:0});
   };
   const insertLink=()=>{
     if(!linkUrl.trim()){setShowLink(false);return;}
@@ -3198,9 +3267,59 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
       `<div style="display:flex;align-items:flex-start;gap:6px;margin:3px 0;line-height:1.7"><input type="checkbox" style="width:15px;height:15px;margin-top:4px;cursor:pointer;flex-shrink:0"><span> To-do item</span></div>`);
     emit();
   };
+  const findNext=(dir=1)=>{
+    if(!findQ.trim()||!editorRef.current)return;
+    editorRef.current.focus();
+    const found=window.find(findQ,false,dir<0,true,false,false,false);
+    if(!found){
+      const sel=window.getSelection();
+      if(sel){
+        if(dir>0)sel.collapse(editorRef.current,0);
+        else sel.collapse(editorRef.current,editorRef.current.childNodes.length);
+        window.find(findQ,false,dir<0,true,false,false,false);
+      }
+    }
+  };
+  const replaceNext=()=>{
+    if(!findQ.trim())return;
+    const sel=window.getSelection();
+    if(sel&&sel.toString().toLowerCase()===findQ.toLowerCase()){
+      sty();document.execCommand('insertText',false,repQ);emit();
+    }
+    findNext(1);
+  };
+  const replaceAll=()=>{
+    if(!findQ.trim()||!editorRef.current)return;
+    const re=new RegExp(findQ.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),'gi');
+    editorRef.current.innerHTML=editorRef.current.innerHTML.replace(re,repQ);
+    emit();
+  };
+  const handlePaste=(e)=>{
+    const html=e.clipboardData.getData('text/html');
+    if(!html)return;
+    e.preventDefault();
+    const tmp=document.createElement('div');
+    tmp.innerHTML=html;
+    tmp.querySelectorAll('[class],[id],[lang]').forEach(el=>{el.removeAttribute('class');el.removeAttribute('id');el.removeAttribute('lang');});
+    tmp.querySelectorAll('[style]').forEach(el=>{
+      const s=el.style;
+      const fw=s.fontWeight,fi=s.fontStyle,td=s.textDecoration,co=s.color,fs=s.fontSize;
+      el.removeAttribute('style');
+      if(fw&&fw!=='normal'&&fw!=='400')el.style.fontWeight=fw;
+      if(fi==='italic')el.style.fontStyle=fi;
+      if(td&&td!=='none')el.style.textDecoration=td;
+      if(co&&co!=='inherit'&&co!=='initial'&&co!=='rgba(0, 0, 0, 0)')el.style.color=co;
+      if(fs&&fs!=='inherit')el.style.fontSize=fs;
+    });
+    sty();document.execCommand('insertHTML',false,tmp.innerHTML);emit();
+  };
 
-  const TC=["#111111","#ef4444","#f97316","#eab308","#22c55e","#3b82f6","#8b5cf6","#ec4899","#6b7280","#ffffff"];
-  const HC=["#fef08a","#bbf7d0","#bfdbfe","#fecaca","#e9d5ff","#fed7aa","#cffafe","transparent"];
+  const TC=["#111111","#434343","#666","#999","#b7b7b7","#ffffff",
+            "#ea4335","#e91e63","#9c27b0","#673ab7","#3f51b5","#2196f3",
+            "#03a9f4","#00bcd4","#009688","#4caf50","#8bc34a","#cddc39",
+            "#ffeb3b","#ffc107","#ff9800","#ff5722","#795548","#607d8b"];
+  const HC=["#fef08a","#bbf7d0","#bfdbfe","#fecaca","#e9d5ff",
+            "#fed7aa","#cffafe","#fde68a","#ddd6fe","transparent"];
 
   const B={padding:"2px 5px",borderRadius:4,border:"1px solid transparent",background:"transparent",
     color:T.tx,cursor:"pointer",fontSize:"0.78rem",height:28,
@@ -3211,18 +3330,45 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
   const Sep=()=><div style={{width:1,height:18,background:T.bd,margin:"0 2px",flexShrink:0,alignSelf:"center"}}/>;
   const IS={padding:"2px 5px",borderRadius:4,border:`1px solid ${T.bd}`,background:T.ib,
     color:T.tx,fontSize:"0.78rem",height:28,outline:"none",cursor:"pointer",flexShrink:0};
+  const SB={padding:"5px 14px",borderRadius:5,border:"none",background:T.ac,color:T.bg,fontSize:"0.85rem",cursor:"pointer",fontWeight:600};
+  const CB={padding:"5px 9px",borderRadius:5,border:`1px solid ${T.bd}`,background:"transparent",color:T.t2,fontSize:"0.85rem",cursor:"pointer"};
 
   const handleEditorKeyDown=(e)=>{
-    if(e.key==="Tab"){e.preventDefault();document.execCommand('insertHTML',false,'&nbsp;&nbsp;&nbsp;&nbsp;');return;}
+    if(e.key==="Tab"){
+      e.preventDefault();
+      if(e.shiftKey)exec('outdent');
+      else if(af.insertUnorderedList||af.insertOrderedList)exec('indent');
+      else document.execCommand('insertHTML',false,'&nbsp;&nbsp;&nbsp;&nbsp;');
+      return;
+    }
+    if(e.key==="Escape"){
+      if(showFind){setShowFind(false);return;}
+      if(showLink){setShowLink(false);return;}
+      if(showTable){setShowTable(false);return;}
+      return;
+    }
     if(e.metaKey||e.ctrlKey){
-      switch(e.key){
-        case'b':e.preventDefault();exec('bold');break;
-        case'i':e.preventDefault();exec('italic');break;
-        case'u':e.preventDefault();exec('underline');break;
-        case'z':if(!e.shiftKey){e.preventDefault();document.execCommand('undo',false,null);emit();updAf();}
-                else{e.preventDefault();document.execCommand('redo',false,null);emit();updAf();}break;
-        case'y':e.preventDefault();document.execCommand('redo',false,null);emit();updAf();break;
-        case'k':e.preventDefault();saveRange();setShowLink(p=>!p);break;
+      const k=e.key.toLowerCase();
+      if(!e.shiftKey){
+        switch(k){
+          case'b':e.preventDefault();exec('bold');break;
+          case'i':e.preventDefault();exec('italic');break;
+          case'u':e.preventDefault();exec('underline');break;
+          case'z':e.preventDefault();document.execCommand('undo',false,null);emit();updAf();break;
+          case'y':e.preventDefault();document.execCommand('redo',false,null);emit();updAf();break;
+          case'k':e.preventDefault();saveRange();setShowLink(p=>!p);break;
+          case'f':e.preventDefault();saveRange();setShowFind(true);setShowReplace(false);break;
+          case'h':e.preventDefault();saveRange();setShowFind(true);setShowReplace(true);break;
+        }
+      } else {
+        switch(k){
+          case'z':e.preventDefault();document.execCommand('redo',false,null);emit();updAf();break;
+          case'7':e.preventDefault();exec('insertOrderedList');break;
+          case'8':e.preventDefault();exec('insertUnorderedList');break;
+          case'e':e.preventDefault();exec('justifyCenter');break;
+          case'l':e.preventDefault();exec('justifyLeft');break;
+          case'r':e.preventDefault();exec('justifyRight');break;
+        }
       }
     }
   };
@@ -3249,7 +3395,7 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
     }
   };
 
-  return <div style={{border:`1px solid ${T.bd}`,borderRadius:8,overflow:"hidden",display:"flex",flexDirection:"column",boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
+  return <div style={{border:`1px solid ${T.bd}`,borderRadius:8,overflow:"hidden",display:"flex",flexDirection:"column",boxShadow:"0 2px 8px rgba(0,0,0,0.06)",flex:1,minHeight:0}}>
     {/* Toolbar — nowrap + overflow-x:auto makes it scrollable on mobile */}
     <div className="rte-tb" style={{background:T.b2,borderBottom:`1px solid ${T.bd}`,padding:"4px 8px",
       display:"flex",flexWrap:"nowrap",gap:1,alignItems:"center",
@@ -3257,6 +3403,13 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
       {/* Undo / Redo */}
       <button style={B} onMouseDown={e=>{e.preventDefault();document.execCommand('undo',false,null);emit();updAf();}} title="Undo (⌘Z)">↩</button>
       <button style={B} onMouseDown={e=>{e.preventDefault();document.execCommand('redo',false,null);emit();updAf();}} title="Redo (⌘⇧Z)">↪</button>
+      <Sep/>
+      {/* Font family */}
+      <select value={selFont} onMouseDown={()=>saveRange()}
+        onChange={e=>{applyFontFamily(e.target.value);}}
+        style={{...IS,minWidth:96,maxWidth:110}}>
+        {FONTS.map(([name,val])=><option key={val} value={val} style={{fontFamily:val}}>{name}</option>)}
+      </select>
       <Sep/>
       {/* Font size */}
       <select value={selFontSize} onMouseDown={()=>saveRange()}
@@ -3270,9 +3423,11 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
       <button style={BA('italic',{fontStyle:"italic"})} onMouseDown={e=>{e.preventDefault();exec('italic');}} title="Italic (⌘I)"><em>I</em></button>
       <button style={BA('underline',{textDecoration:"underline"})} onMouseDown={e=>{e.preventDefault();exec('underline');}} title="Underline (⌘U)"><u>U</u></button>
       <button style={BA('strikeThrough',{textDecoration:"line-through"})} onMouseDown={e=>{e.preventDefault();exec('strikeThrough');}} title="Strikethrough"><s>S</s></button>
+      <button style={BA('superscript',{fontSize:"0.65rem",verticalAlign:"super"})} onMouseDown={e=>{e.preventDefault();exec('superscript');}} title="Superscript">x²</button>
+      <button style={BA('subscript',{fontSize:"0.65rem",verticalAlign:"sub"})} onMouseDown={e=>{e.preventDefault();exec('subscript');}} title="Subscript">x₂</button>
       <Sep/>
       {/* Colors */}
-      <TextColorPicker T={T} colors={TC}
+      <TextColorPicker T={T} colors={TC} cols={6}
         onSelect={c=>{restoreRange();sty();exec('foreColor',c);}}
         label={<span style={{borderBottom:"3px solid currentColor",paddingBottom:1,lineHeight:1}}>A</span>}
         title="Text color"/>
@@ -3304,6 +3459,9 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
       <button style={BA('justifyRight')} onMouseDown={e=>{e.preventDefault();exec('justifyRight');}} title="Align right">
         <svg width="13" height="11" viewBox="0 0 13 11" fill="currentColor"><rect y="0" width="13" height="1.5" rx="0.75"/><rect x="4" y="3.5" width="9" height="1.5" rx="0.75"/><rect y="7" width="13" height="1.5" rx="0.75"/></svg>
       </button>
+      <button style={BA('justifyFull')} onMouseDown={e=>{e.preventDefault();exec('justifyFull');}} title="Justify">
+        <svg width="13" height="11" viewBox="0 0 13 11" fill="currentColor"><rect y="0" width="13" height="1.5" rx="0.75"/><rect y="3.5" width="13" height="1.5" rx="0.75"/><rect y="7" width="13" height="1.5" rx="0.75"/></svg>
+      </button>
       <Sep/>
       {/* Lists + indent */}
       <button style={BA('insertUnorderedList',{fontSize:"0.72rem"})} onMouseDown={e=>{e.preventDefault();exec('insertUnorderedList');}} title="Bullet list">• ≡</button>
@@ -3314,8 +3472,28 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
       <Sep/>
       {/* Insert */}
       <button style={B} onMouseDown={e=>{e.preventDefault();saveRange();setShowLink(p=>!p);}} title="Link (⌘K)">🔗</button>
-      <button style={B} onMouseDown={e=>{e.preventDefault();saveRange();setShowTable(p=>!p);}} title="Table">⊞</button>
+      <div style={{position:"relative",flexShrink:0}} ref={tableBtnRef}>
+        <button style={B} onMouseDown={e=>{e.preventDefault();saveRange();setShowTable(p=>!p);}} title="Table">⊞</button>
+        {showTable&&<div onMouseLeave={()=>setTGrid({r:0,c:0})}
+          style={{position:"absolute",top:"100%",left:0,zIndex:200,background:T.b3,
+            border:`1px solid ${T.bd}`,borderRadius:6,padding:6,
+            boxShadow:"0 4px 16px rgba(0,0,0,0.15)"}}>
+          <div style={{fontSize:"0.7rem",color:T.t3,marginBottom:4,textAlign:"center"}}>
+            {tGrid.r&&tGrid.c?`${tGrid.r}×${tGrid.c}`:"Insert table"}
+          </div>
+          {Array.from({length:8},(_,r)=><div key={r} style={{display:"flex",gap:2,marginBottom:2}}>
+            {Array.from({length:8},(_,c)=><div key={c}
+              onMouseEnter={()=>setTGrid({r:r+1,c:c+1})}
+              onMouseDown={e=>{e.preventDefault();insertTableGrid(tGrid.r||r+1,tGrid.c||c+1);setShowTable(false);}}
+              style={{width:16,height:16,borderRadius:2,cursor:"pointer",
+                background:(r<tGrid.r&&c<tGrid.c)?T.ac+"44":"transparent",
+                border:`1px solid ${(r<tGrid.r&&c<tGrid.c)?T.ac:T.bd}`}}/>)}
+          </div>)}
+        </div>}
+      </div>
       <button style={{...B,fontSize:"0.7rem"}} onMouseDown={e=>{e.preventDefault();exec('insertHorizontalRule');}} title="Divider">—</button>
+      <Sep/>
+      <button style={{...B,fontSize:"0.72rem",color:showFind?T.ac:T.t3}} onMouseDown={e=>{e.preventDefault();saveRange();setShowFind(p=>!p);setShowReplace(false);}} title="Find (⌘F)">⌕</button>
       <Sep/>
       <button style={{...B,fontSize:"0.65rem",color:T.t3}} onMouseDown={e=>{e.preventDefault();exec('removeFormat');}} title="Clear formatting">✕fmt</button>
     </div>
@@ -3329,33 +3507,63 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
       <button onClick={insertLink} style={{padding:"5px 14px",borderRadius:5,border:"none",background:T.ac,color:T.bg,fontSize:"0.85rem",cursor:"pointer",fontWeight:600}}>Insert</button>
       <button onClick={()=>{setShowLink(false);setLinkUrl("");}} style={{padding:"5px 9px",borderRadius:5,border:`1px solid ${T.bd}`,background:"transparent",color:T.t2,fontSize:"0.85rem",cursor:"pointer"}}>✕</button>
     </div>}
-    {/* Table dialog */}
-    {showTable&&<div style={{background:T.b2,borderBottom:`1px solid ${T.bd}`,padding:"7px 12px",display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-      <span style={{fontSize:"0.82rem",color:T.t2}}>Insert table:</span>
-      <input type="number" value={tRows} onChange={e=>setTRows(+e.target.value)} min={1} max={20}
-        style={{width:50,padding:"5px 7px",borderRadius:5,border:`1px solid ${T.bd}`,background:T.ib,color:T.tx,fontSize:"0.85rem",outline:"none"}}/>
-      <span style={{fontSize:"0.82rem",color:T.t3}}>rows ×</span>
-      <input type="number" value={tCols} onChange={e=>setTCols(+e.target.value)} min={1} max={10}
-        style={{width:50,padding:"5px 7px",borderRadius:5,border:`1px solid ${T.bd}`,background:T.ib,color:T.tx,fontSize:"0.85rem",outline:"none"}}/>
-      <span style={{fontSize:"0.82rem",color:T.t3}}>cols</span>
-      <button onClick={insertTable} style={{padding:"5px 14px",borderRadius:5,border:"none",background:T.ac,color:T.bg,fontSize:"0.85rem",cursor:"pointer",fontWeight:600}}>Insert</button>
-      <button onClick={()=>setShowTable(false)} style={{padding:"5px 9px",borderRadius:5,border:`1px solid ${T.bd}`,background:"transparent",color:T.t2,fontSize:"0.85rem",cursor:"pointer"}}>✕</button>
+    {/* Find / Replace bar */}
+    {showFind&&<div style={{background:T.b2,borderBottom:`1px solid ${T.bd}`,padding:"7px 12px",display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+      <input value={findQ} onChange={e=>setFindQ(e.target.value)} placeholder="Find…" autoFocus
+        onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();findNext();}if(e.key==="Escape")setShowFind(false);}}
+        style={{flex:1,minWidth:120,padding:"5px 9px",borderRadius:5,border:`1px solid ${T.bd}`,
+          background:T.ib,color:T.tx,fontSize:"0.85rem",outline:"none"}}/>
+      {showReplace&&<input value={repQ} onChange={e=>setRepQ(e.target.value)} placeholder="Replace with…"
+        onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();replaceNext();}if(e.key==="Escape")setShowFind(false);}}
+        style={{flex:1,minWidth:120,padding:"5px 9px",borderRadius:5,border:`1px solid ${T.bd}`,
+          background:T.ib,color:T.tx,fontSize:"0.85rem",outline:"none"}}/>}
+      <button onClick={findNext} style={{padding:"5px 10px",borderRadius:5,border:`1px solid ${T.bd}`,background:"transparent",color:T.tx,fontSize:"0.82rem",cursor:"pointer"}}>↓ Next</button>
+      {!showReplace&&<button onClick={()=>setShowReplace(true)} style={{padding:"5px 10px",borderRadius:5,border:`1px solid ${T.bd}`,background:"transparent",color:T.t2,fontSize:"0.82rem",cursor:"pointer"}}>Replace</button>}
+      {showReplace&&<><button onClick={replaceNext} style={{padding:"5px 10px",borderRadius:5,border:"none",background:T.ac,color:T.bg,fontSize:"0.82rem",cursor:"pointer",fontWeight:600}}>Replace</button>
+      <button onClick={replaceAll} style={{padding:"5px 10px",borderRadius:5,border:`1px solid ${T.bd}`,background:"transparent",color:T.t2,fontSize:"0.82rem",cursor:"pointer"}}>All</button></>}
+      <button onClick={()=>{setShowFind(false);setShowReplace(false);}} style={{padding:"5px 9px",borderRadius:5,border:`1px solid ${T.bd}`,background:"transparent",color:T.t2,fontSize:"0.85rem",cursor:"pointer"}}>✕</button>
     </div>}
-    {/* Editor area */}
-    <div className="rte-wrap" ref={editorRef}
-      contentEditable suppressContentEditableWarning
-      data-placeholder={placeholder||"Start writing…"}
-      onInput={emit}
-      onMouseUp={()=>{saveRange();updAf();}}
-      onKeyUp={()=>{saveRange();updAf();}}
-      onKeyDown={handleEditorKeyDown}
-      onMouseDown={handleEditorMouseDown}
-      onMouseMove={handleEditorMouseMove}
-      onFocus={sty}
-      style={{flex:1,minHeight:minHeight||300,padding:"18px 22px",color:T.tx,
-        fontSize:"0.94rem",lineHeight:1.85,outline:"none",
-        fontFamily:"'DM Sans',sans-serif",overflowY:"auto",
-        boxSizing:"border-box",cursor:"text",wordBreak:"break-word"}}/>
+    {/* Document page area */}
+    <div style={{flex:1,background:outerBg,overflowY:"auto",padding:isME?"8px 0":"20px 0",
+      display:"flex",justifyContent:"center",position:"relative"}}>
+      <div style={{width:"100%",maxWidth:isME?"100%":760,margin:isME?0:"0 auto",
+        background:pageBg,boxShadow:pageShadow,borderRadius:isME?0:4,
+        minHeight:minHeight||400,display:"flex",flexDirection:"column"}}>
+        <div className="rte-wrap" ref={editorRef}
+          contentEditable suppressContentEditableWarning
+          data-placeholder={placeholder||"Start writing…"}
+          onInput={emit}
+          onMouseUp={()=>{saveRange();updAf();updLinkTip();}}
+          onKeyUp={()=>{saveRange();updAf();updLinkTip();}}
+          onKeyDown={handleEditorKeyDown}
+          onMouseDown={handleEditorMouseDown}
+          onMouseMove={handleEditorMouseMove}
+          onFocus={sty}
+          style={{flex:1,minHeight:minHeight||400,padding:isME?"16px 18px":"32px 48px",color:pageColor,
+            fontSize:"0.95rem",lineHeight:1.85,outline:"none",
+            fontFamily:"'DM Sans',sans-serif",
+            boxSizing:"border-box",cursor:"text",wordBreak:"break-word"}}/>
+      </div>
+      {/* Link tooltip */}
+      {linkTip&&<div style={{position:"fixed",left:linkTip.x,top:linkTip.y,zIndex:300,
+        background:T.b3,border:`1px solid ${T.bd}`,borderRadius:6,padding:"5px 10px",
+        boxShadow:"0 3px 12px rgba(0,0,0,0.18)",display:"flex",gap:8,alignItems:"center",
+        fontSize:"0.82rem",maxWidth:280}}>
+        <span style={{color:T.t2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}}>{linkTip.href}</span>
+        <a href={linkTip.href} target="_blank" rel="noopener noreferrer"
+          style={{color:T.ac,textDecoration:"none",flexShrink:0}}>Open</a>
+        <button onClick={()=>{saveRange();setLinkUrl(linkTip.href);setShowLink(true);setLinkTip(null);}}
+          style={{background:"none",border:"none",color:T.t2,cursor:"pointer",padding:0,flexShrink:0}}>Edit</button>
+        <button onClick={()=>{if(linkTip.el){linkTip.el.replaceWith(document.createTextNode(linkTip.el.textContent));}setLinkTip(null);emit();}}
+          style={{background:"none",border:"none",color:"#ea4335",cursor:"pointer",padding:0,flexShrink:0}}>Remove</button>
+      </div>}
+    </div>
+    {/* Status bar */}
+    <div style={{background:T.b2,borderTop:`1px solid ${T.bd}`,padding:"3px 12px",
+      display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:4}}>
+      <span style={{fontSize:"0.72rem",color:T.t3}}>{wordCount} word{wordCount!==1?"s":""} · {charCount} char{charCount!==1?"s":""}</span>
+      <span style={{fontSize:"0.68rem",color:T.t3,opacity:0.7}}>⌘B bold · ⌘I italic · ⌘K link · ⌘F find</span>
+    </div>
   </div>;
 }
 
@@ -6072,6 +6280,7 @@ function TasksDashboard({T,MO,SE,tasks,cats,courses,aT,uT,dT,tT,pushUndo}){
 
 // ═══ NOTES DASHBOARD ═══
 function NotesDashboard({T,MO,SE,quickNotes,setQuickNotes,journalEntries,setJournalEntries}){
+  const[notesTab,setNotesTab]=useState("notes");
   const[journalTab,setJournalTab]=useState("write");
   const[journalMode,setJournalMode]=useState("daily");
   const[journalDate,setJournalDate]=useState($d(new Date()));
@@ -6149,60 +6358,55 @@ function NotesDashboard({T,MO,SE,quickNotes,setQuickNotes,journalEntries,setJour
     fontSize:"0.54rem",background:active?T.ac:"transparent",color:active?T.bg:T.t3,
     transition:"background 0.15s,color 0.15s"});
 
-  return <div style={{flex:1,overflow:"auto",padding:isMobile?"12px 10px 48px":"28px 32px 56px",background:T.bg,boxSizing:"border-box"}}>
-    <div style={{maxWidth:1240,margin:"0 auto"}}>
+  return <div style={{flex:1,overflow:"auto",padding:isMobile?"0":"0",background:T.bg,
+    boxSizing:"border-box",display:"flex",flexDirection:"column"}}>
 
-      {/* Page header */}
-      <div style={{marginBottom:24}}>
-        <h2 style={{fontFamily:SE,fontSize:"2rem",fontWeight:400,margin:0,color:T.tx,letterSpacing:"-0.02em"}}>
-          Notes<span style={{color:T.ac,fontStyle:"italic"}}> &amp; Journal</span>
-        </h2>
-        <div style={{fontFamily:MO,fontSize:"0.56rem",color:T.t2,letterSpacing:"0.04em",marginTop:5}}>
-          Quick notes auto-save · Journal entries sync across devices
-        </div>
+    {/* ── Tab toggle bar ── */}
+    <div style={{borderBottom:`1px solid ${T.bd}`,background:T.b2,padding:"0 16px",
+      display:"flex",alignItems:"center",gap:0,flexShrink:0}}>
+      {[["notes","Quick Notes"],["journal","Journal"]].map(([k,l])=>
+        <button key={k} onClick={()=>setNotesTab(k)}
+          style={{padding:"12px 20px",border:"none",background:"transparent",
+            cursor:"pointer",fontFamily:MO,fontSize:"0.58rem",fontWeight:700,
+            color:notesTab===k?T.ac:T.t3,
+            borderBottom:notesTab===k?`2px solid ${T.ac}`:"2px solid transparent",
+            transition:"color 0.15s,border-color 0.15s",letterSpacing:"0.04em",
+            textTransform:"uppercase"}}>
+          {l}
+          {k==="notes"&&notesSaved&&<span style={{marginLeft:6,fontSize:"0.45rem",color:T.ac,opacity:1}}>✓</span>}
+        </button>)}
+      <div style={{marginLeft:"auto",padding:"0 4px"}}>
+        <span style={{fontFamily:MO,fontSize:"0.46rem",color:T.t3}}>
+          {notesTab==="notes"?"Auto-saves":`${allEntries.length} entr${allEntries.length===1?"y":"ies"}`}
+        </span>
       </div>
+    </div>
 
-      <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:22,alignItems:"start"}}>
+    {/* ── Quick Notes panel ── */}
+    {notesTab==="notes"&&<div style={{flex:1,overflow:"hidden",display:"flex",flexDirection:"column"}}>
+      <RichTextEditor key="quick-notes-rte" initialValue={quickNotes||""}
+        onChange={handleNotesChange} T={T} MO={MO}
+        placeholder="Ideas, reminders, links, scratch space…"
+        minHeight={isMobile?300:500}/>
+    </div>}
 
-        {/* ── LEFT: Quick Notes ── */}
-        <div>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-            <span style={{fontFamily:MO,fontSize:"0.58rem",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",color:T.t2}}>Quick Notes</span>
-            <span style={{fontFamily:MO,fontSize:"0.5rem",color:T.ac,opacity:notesSaved?1:0,transition:"opacity 0.4s"}}>✓ Saved</span>
+    {/* ── Journal panel ── */}
+    {notesTab==="journal"&&<div style={{flex:1,overflow:"auto",padding:isMobile?"10px 10px 48px":"20px 24px 56px",boxSizing:"border-box"}}>
+      <div style={{maxWidth:860,margin:"0 auto"}}>
+
+        {/* Journal top bar */}
+        <div style={{display:"flex",alignItems:"center",justifyContent:"flex-end",marginBottom:14,flexWrap:"wrap",gap:8}}>
+          <div style={{display:"flex",background:T.b2,border:`1px solid ${T.bd}`,borderRadius:7,overflow:"hidden"}}>
+            {[["daily","Daily"],["weekly","Weekly"]].map(([k,l])=>
+              <button key={k} onClick={()=>{setJournalMode(k);setJournalTab("write");setBrowseSel(null);}}
+                style={SegBtn(journalMode===k)}>{l}</button>)}
           </div>
-          {/* Document-style card */}
-          <div style={{background:T.b3,border:`1px solid ${T.bd}`,borderRadius:10,overflow:"hidden",
-            boxShadow:"0 2px 12px rgba(0,0,0,0.07)"}}>
-            <RichTextEditor key="quick-notes-rte" initialValue={quickNotes||""}
-              onChange={handleNotesChange} T={T} MO={MO}
-              placeholder="Ideas, reminders, links, scratch space…"
-              minHeight={isMobile?200:460}/>
-          </div>
-          <div style={{fontFamily:MO,fontSize:"0.46rem",color:T.t3,marginTop:7,textAlign:"right"}}>
-            Auto-saves · Synced to your account
+          <div style={{display:"flex",background:T.b3,border:`1px solid ${T.bd}`,borderRadius:7,overflow:"hidden"}}>
+            {[["write","Write"],["browse",`Browse (${allEntries.length})`]].map(([k,l])=>
+              <button key={k} onClick={()=>{setJournalTab(k);setBrowseSel(null);}}
+                style={SegBtn(journalTab===k)}>{l}</button>)}
           </div>
         </div>
-
-        {/* ── RIGHT: Journal ── */}
-        <div>
-          {/* Journal top bar */}
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10,flexWrap:"wrap",gap:8}}>
-            <h3 style={{fontFamily:SE,fontSize:"1.4rem",fontWeight:400,margin:0,color:T.tx}}>
-              Journal<span style={{color:T.ac,fontStyle:"italic"}}> Entries</span>
-            </h3>
-            <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
-              <div style={{display:"flex",background:T.b2,border:`1px solid ${T.bd}`,borderRadius:7,overflow:"hidden"}}>
-                {[["daily","Daily"],["weekly","Weekly"]].map(([k,l])=>
-                  <button key={k} onClick={()=>{setJournalMode(k);setJournalTab("write");setBrowseSel(null);}}
-                    style={SegBtn(journalMode===k)}>{l}</button>)}
-              </div>
-              <div style={{display:"flex",background:T.b3,border:`1px solid ${T.bd}`,borderRadius:7,overflow:"hidden"}}>
-                {[["write","Write"],["browse",`Browse (${allEntries.length})`]].map(([k,l])=>
-                  <button key={k} onClick={()=>{setJournalTab(k);setBrowseSel(null);}}
-                    style={SegBtn(journalTab===k)}>{l}</button>)}
-              </div>
-            </div>
-          </div>
 
           {/* ── WRITE TAB ── */}
           {journalTab==="write"&&<div style={{background:T.b3,border:`1px solid ${T.bd}`,borderRadius:10,overflow:"hidden",
@@ -6336,10 +6540,9 @@ function NotesDashboard({T,MO,SE,quickNotes,setQuickNotes,journalEntries,setJour
               })}
             </div>
           </div>}
-        </div>
 
       </div>
-    </div>
+    </div>}
   </div>;
 }
 
