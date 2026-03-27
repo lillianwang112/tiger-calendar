@@ -73,6 +73,22 @@
   @keyframes slideUp { from { transform: translateY(100%); opacity:0; } to { transform: translateY(0); opacity:1; } }
   @keyframes longPressRipple { 0%{transform:scale(0.3);opacity:0.7} 100%{transform:scale(1);opacity:0} }
   .lp-ripple { animation: longPressRipple 0.32s ease-out forwards; pointer-events:none; }
+  @keyframes sleepPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:0.55;transform:scale(1.18)}}
+  @keyframes dayTick{0%,100%{opacity:1}50%{opacity:0.7}}
+  .rte-wrap h1{font-family:'DM Serif Display',Georgia,serif;font-size:1.55rem;font-weight:700;margin:10px 0 4px;line-height:1.2}
+  .rte-wrap h2{font-family:'DM Serif Display',Georgia,serif;font-size:1.25rem;font-weight:700;margin:8px 0 3px;line-height:1.2}
+  .rte-wrap h3{font-family:'DM Serif Display',Georgia,serif;font-size:1.05rem;font-weight:600;margin:7px 0 2px;line-height:1.2}
+  .rte-wrap a{color:#6366f1;text-decoration:underline}
+  .rte-wrap ul{padding-left:22px;margin:4px 0}
+  .rte-wrap ol{padding-left:22px;margin:4px 0}
+  .rte-wrap li{margin:2px 0;line-height:1.7}
+  .rte-wrap table{border-collapse:collapse;width:100%;margin:10px 0}
+  .rte-wrap td,.rte-wrap th{border:1px solid #888;padding:6px 10px;min-width:60px;text-align:left}
+  .rte-wrap th{background:rgba(128,128,128,0.1);font-weight:600}
+  .rte-wrap hr{border:none;border-top:2px solid rgba(128,128,128,0.3);margin:12px 0}
+  .rte-wrap blockquote{border-left:3px solid #6366f1;margin:8px 0;padding:4px 14px;opacity:0.85}
+  .rte-wrap [data-placeholder]:empty:before{content:attr(data-placeholder);color:#888;pointer-events:none;font-style:italic}
+  .rte-wrap:focus-within [data-placeholder]:empty:before{color:#aaa}
 </style>
 </head>
 <body>
@@ -465,6 +481,8 @@ function useFirestoreSync(user,_localData,setters){
     if(cloud.showHolidays!==undefined)setters.setShowHolidays(cloud.showHolidays);
     if(cloud.quickNotes!==undefined&&setters.setQuickNotes)setters.setQuickNotes(cloud.quickNotes);
     if(cloud.journalEntries&&setters.setJournalEntries)setters.setJournalEntries(cloud.journalEntries);
+    if(cloud.sleepSettings&&setters.setSleepSettings)setters.setSleepSettings(cloud.sleepSettings);
+    if(cloud.sleepDayData&&setters.setSleepDayData)setters.setSleepDayData(cloud.sleepDayData);
 
     // Directly regenerate ALL derived events rather than relying on useEffects.
     // This avoids race conditions where sem/showHolidays don't "change" (same value
@@ -793,6 +811,8 @@ function App(){
   const sharedScrollRef=useRef(null); // shared scrollTop across all 3 TG panels
   const[quickNotes,setQuickNotes]=useState(saved?.quickNotes||"");
   const[journalEntries,setJournalEntries]=useState(saved?.journalEntries||[]);
+  const[sleepSettings,setSleepSettings]=useState(saved?.sleepSettings||{enabled:false,bedtime:"22:00",wakeTime:"07:00"});
+  const[sleepDayData,setSleepDayData]=useState(saved?.sleepDayData||{});
   // remember last calendar view so the calendar icon button returns to it
   const lastCalViewRef=useRef(view==="tasks-dashboard"||view==="notes-dashboard"||view==="focus-dashboard"?"week":view);
 
@@ -817,7 +837,7 @@ function App(){
     }
   },[authLoading]);
 
-  const syncSetters=useMemo(()=>({setEv,setTk:setTk,setCo,setCats,setSem,setTheme,setSettings,setExams,setAssignments,setOfficeHours,setShowHolidays,setCsOpen,setView,setQuickNotes,setJournalEntries}),[]);
+  const syncSetters=useMemo(()=>({setEv,setTk:setTk,setCo,setCats,setSem,setTheme,setSettings,setExams,setAssignments,setOfficeHours,setShowHolidays,setCsOpen,setView,setQuickNotes,setJournalEntries,setSleepSettings,setSleepDayData}),[]);
   // Derived events are always regenerated from their source data (tasks, officeHours, courses, PCAL).
   // Never persist them — doing so causes duplicates on reload and stale data across devices.
   const persistableEvents=useMemo(()=>events.filter(e=>
@@ -840,8 +860,37 @@ function App(){
       startHour:sH,startMin:sM,endHour:dH,endMin:dM,
       detail:t.detail||"",_taskDueId:t.id,_allDay:false,_done:t.done};
   });
-  const allEvents=[...events.filter(e=>!e._taskDueId),..._taskDueEvs];
-  const{upload,restoreFromBackup,cloudSyncReady}=useFirestoreSync(user,{events:persistableEvents,tasks,courses,cats,sem,theme,showHolidays,settings,exams,assignments,officeHours,quickNotes,journalEntries},syncSetters);
+  // Sleep indicator events: bedtime + wakeup markers shown on calendar grid.
+  // Generated from sleepSettings + per-day overrides. Never persisted.
+  const _sleepEvs=useMemo(()=>{
+    if(!sleepSettings||!sleepSettings.enabled)return[];
+    const res=[];
+    const now=new Date();now.setHours(0,0,0,0);
+    for(let di=-90;di<=90;di++){
+      const day=new Date(now);day.setDate(now.getDate()+di);
+      const ds=$d(day);
+      const ovr=sleepDayData[ds]||{};
+      if(ovr.skip)continue;
+      const bt=ovr.bedtime||sleepSettings.bedtime||"22:00";
+      const wt=ovr.wakeTime||sleepSettings.wakeTime||"07:00";
+      const[bH,bM]=bt.split(":").map(Number);
+      const[wH,wM]=wt.split(":").map(Number);
+      if(isNaN(bH)||isNaN(wH))continue;
+      const bEndMin=Math.min(bH*60+bM+45,bH*60+59);
+      const wEndMin=Math.min(wH*60+wM+45,wH*60+59);
+      res.push({id:`_slp_b_${ds}`,_sleepId:ds,_sleepType:"bedtime",date:ds,
+        title:"\uD83C\uDF19 Bedtime",startHour:bH,startMin:bM,
+        endHour:Math.floor(bEndMin/60),endMin:bEndMin%60,
+        category:"_sleep",_allDay:false});
+      res.push({id:`_slp_w_${ds}`,_sleepId:ds,_sleepType:"wakeup",date:ds,
+        title:"\u2600\uFE0F Wake up",startHour:wH,startMin:wM,
+        endHour:Math.floor(wEndMin/60),endMin:wEndMin%60,
+        category:"_sleep",_allDay:false});
+    }
+    return res;
+  },[sleepSettings,sleepDayData]);
+  const allEvents=[...events.filter(e=>!e._taskDueId),..._taskDueEvs,..._sleepEvs];
+  const{upload,restoreFromBackup,cloudSyncReady}=useFirestoreSync(user,{events:persistableEvents,tasks,courses,cats,sem,theme,showHolidays,settings,exams,assignments,officeHours,quickNotes,journalEntries,sleepSettings,sleepDayData},syncSetters);
 
   useEffect(()=>{setAc(p=>{const n=new Set(p);Object.keys(cats).forEach(k=>n.add(k));n.add("_holidays");n.add("_officehours");return n;});},[cats]);
   useEffect(()=>{
@@ -850,10 +899,10 @@ function App(){
     // make ldForUser return an empty record and corrupt local-first detection.
     if(!cloudSyncReady) return;
     const ts=Date.now();
-    const data={events:persistableEvents,tasks,courses,cats,sem,theme,showHolidays,settings,exams,assignments,officeHours,quickNotes,journalEntries,_ts:ts};
+    const data={events:persistableEvents,tasks,courses,cats,sem,theme,showHolidays,settings,exams,assignments,officeHours,quickNotes,journalEntries,sleepSettings,sleepDayData,_ts:ts};
     svForUser(user?.uid||(isGuest?"guest":null),data);
     if(user)upload(data);
-  },[persistableEvents,tasks,courses,cats,sem,theme,showHolidays,settings,exams,assignments,officeHours,quickNotes,journalEntries,user,cloudSyncReady]);
+  },[persistableEvents,tasks,courses,cats,sem,theme,showHolidays,settings,exams,assignments,officeHours,quickNotes,journalEntries,sleepSettings,sleepDayData,user,cloudSyncReady]);
 
 
 
@@ -1277,11 +1326,12 @@ function App(){
           {view==="semester"&&<SemV T={T} sem={sem} events={allEvents} tasks={tasks} exams={exams} assignments={assignments} courses={courses} cats={cats} ac={ac} setModal={setModal} MO={MO} SE={SE} setCd={setCd} setView={setView}/>}
           {view==="tasks-dashboard"&&<TasksDashboard T={T} MO={MO} SE={SE} tasks={tasks} cats={cats} courses={courses} aT={aT} uT={uT} dT={dT} tT={tT} pushUndo={pushUndo}/>}
           {view==="notes-dashboard"&&<NotesDashboard T={T} MO={MO} SE={SE} quickNotes={quickNotes} setQuickNotes={setQuickNotes} journalEntries={journalEntries} setJournalEntries={setJournalEntries}/>}
-          {view==="focus-dashboard"&&<FocusDashboard T={T} MO={MO} SE={SE} tasks={tasks} events={allEvents} courses={courses} cats={cats} exams={exams} assignments={assignments} sem={sem} setChatOpen={setChatOpen}/>}
+          {view==="focus-dashboard"&&<FocusDashboard T={T} MO={MO} SE={SE} tasks={tasks} events={allEvents} courses={courses} cats={cats} exams={exams} assignments={assignments} sem={sem} setChatOpen={setChatOpen} sleepSettings={sleepSettings} setSleepSettings={setSleepSettings} sleepDayData={sleepDayData} setSleepDayData={setSleepDayData}/>}
         </>}
       </div>
     </div>
-    {modal&&modal.type!=="_catEdit"&&modal.type!=="_account"&&modal.type!=="_tapPreview"&&<EModal T={T} modal={modal} setModal={setModal} aE={aE} uE={uE} dE={dE} dSB={dSB} aT={aT} uT={uT} dT={dT} cats={cats} MO={MO} SE={SE}/>}
+    {modal&&modal.type!=="_catEdit"&&modal.type!=="_account"&&modal.type!=="_tapPreview"&&modal.type!=="_sleep"&&<EModal T={T} modal={modal} setModal={setModal} aE={aE} uE={uE} dE={dE} dSB={dSB} aT={aT} uT={uT} dT={dT} cats={cats} MO={MO} SE={SE}/>}
+    {modal&&modal.type==="_sleep"&&<SleepModal T={T} MO={MO} SE={SE} modal={modal} setModal={setModal} sleepSettings={sleepSettings} setSleepSettings={setSleepSettings} sleepDayData={sleepDayData} setSleepDayData={setSleepDayData}/>}
     {modal&&modal.type==="_account"&&user&&<AccountModal T={T} MO={MO} SE={SE} user={user} signOut={signOut} deleteAccount={deleteAccount} setModal={setModal}/>}
     {modal&&modal.type==="_catEdit"&&<CatModal T={T} MO={MO} SE={SE} cats={cats} setCats={setCats} setModal={setModal}/>}
     {modal&&modal.type==="_tapPreview"&&<TapPreviewSheet T={T} MO={MO} SE={SE} modal={modal} setModal={setModal} cats={cats}/>}
@@ -1735,7 +1785,7 @@ function TGSwipe({T,panels,events,tasks,cats,ac,setModal,modal,MO,SE,drag,setDra
           {panels.map(({key,dates})=>{
             const colRef=(el)=>attachTouch(el);
             return <div key={key} ref={colRef} style={{width:"33.333%",flexShrink:0,display:"flex",height:hh*24}}>
-              {dates.map(d=>{const ds=$d(d),it=$td(d),laid=layoutEvents(events.filter(e=>e.date===ds&&!e._allDay&&(ac.has(e.category)||e._taskDueId)));
+              {dates.map(d=>{const ds=$d(d),it=$td(d),laid=layoutEvents(events.filter(e=>e.date===ds&&!e._allDay&&(ac.has(e.category)||e._taskDueId||e._sleepId)));
                 return <div key={ds} onMouseDown={e=>mD(e,ds)} onTouchStart={e=>tSD(e,ds)}
                   style={{position:"relative",flex:1,borderLeft:`1px solid ${T.bd}`,background:it?T.tb:"transparent",cursor:"crosshair",touchAction:"pan-y"}}>
                   {HOURS.map(h=><div key={h} style={{height:hh,borderBottom:`1px solid ${T.bd}`}}/>)}
@@ -1745,25 +1795,30 @@ function TGSwipe({T,panels,events,tasks,cats,ac,setModal,modal,MO,SE,drag,setDra
                     const tc=ev._totalCols||1,col=ev._col||0;
                     const leftPct=`${(col/tc)*100}%`,rightPct=`${((tc-col-1)/tc)*100}%`;
                     const isTD=!!ev._taskDueId;
+                    const isSleep=!!ev._sleepId;
+                    const sleepBed=isSleep&&ev._sleepType==="bedtime";
+                    const sleepBg=sleepBed?"rgba(99,70,200,0.13)":"rgba(250,190,40,0.13)";
+                    const sleepBorder=sleepBed?"#7c6af7":"#f0a500";
                     return <div key={ev.id} data-ev="1"
                       onClick={e=>{e.stopPropagation();
                         if(isTD){const tk=tasks?.find(t=>t.id===ev._taskDueId);if(tk)setModal({type:"task",data:tk});}
+                        else if(isSleep){setModal({type:"_sleep",sleepDate:ev._sleepId});}
                         else setModal({type:"event",data:ev});}}
-                      style={{position:"absolute",top,left:leftPct,right:rightPct,
+                      style={{position:"absolute",top,left:isSleep?"0%":leftPct,right:isSleep?"0%":rightPct,
                         height:ht,
-                        background:isTD?`${cat.bg}bb`:cat.bg,
-                        borderLeft:`3px solid ${cat.color}`,
-                        borderTop:isTD?`2px dashed ${cat.color}`:"none",
+                        background:isSleep?sleepBg:isTD?`${cat.bg}bb`:cat.bg,
+                        borderLeft:`3px solid ${isSleep?sleepBorder:cat.color}`,
+                        borderTop:isTD?`2px dashed ${cat.color}`:isSleep?`1px dashed ${sleepBorder}`:"none",
                         borderRadius:3,padding:"1px 3px",
-                        cursor:"pointer",overflow:"hidden",zIndex:5,
+                        cursor:"pointer",overflow:"hidden",zIndex:isSleep?3:5,
                         boxShadow:"0 1px 2px rgba(0,0,0,0.12)",
                         boxSizing:"border-box",minWidth:0,
                         opacity:ev._done?0.5:1}}>
-                      <div style={{fontSize:"0.55rem",fontWeight:600,color:T.tx,lineHeight:1.15,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",textDecoration:ev._done?"line-through":"none"}}>{ev.title}</div>
+                      <div style={{fontSize:"0.55rem",fontWeight:600,color:isSleep?sleepBorder:T.tx,lineHeight:1.15,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",textDecoration:ev._done?"line-through":"none"}}>{ev.title}</div>
                       {ht>22&&<div style={{fontFamily:MO,fontSize:"0.38rem",color:T.t2,marginTop:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-                        {isTD?`due ${$t(ev.endHour,ev.endMin||0)}`:`${$t(ev.startHour,ev.startMin||0)}–${$t(ev.endHour,ev.endMin||0)}`}
+                        {isTD?`due ${$t(ev.endHour,ev.endMin||0)}`:isSleep?$t(ev.startHour,ev.startMin||0):`${$t(ev.startHour,ev.startMin||0)}–${$t(ev.endHour,ev.endMin||0)}`}
                       </div>}
-                      {ht>36&&ev.location&&<div style={{fontFamily:MO,fontSize:"0.36rem",color:T.t3,marginTop:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>📍 {ev.location}</div>}
+                      {ht>36&&ev.location&&!isSleep&&<div style={{fontFamily:MO,fontSize:"0.36rem",color:T.t3,marginTop:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{"\uD83D\uDCCD"} {ev.location}</div>}
                     </div>;})}
                   {drag?.active&&drag.date===ds&&(()=>{let{sH:sh,sM:sm,eH:eh,eM:em}=drag;
                     if(sh>eh||(sh===eh&&sm>em))[sh,sm,eh,em]=[eh,em,sh,sm];
@@ -2982,6 +3037,492 @@ function parseICS(text){
   return events;
 }
 
+// ═══ RICH TEXT EDITOR ═══
+function TextColorPicker({T,colors,onSelect,label,title}){
+  const[open,setOpen]=useState(false);
+  return <div style={{position:"relative",display:"inline-flex"}}>
+    <button onMouseDown={e=>{e.preventDefault();setOpen(p=>!p);}} title={title}
+      style={{padding:"2px 6px",borderRadius:4,border:`1px solid ${T.bd}`,background:"transparent",
+        color:T.tx,cursor:"pointer",fontSize:"0.78rem",height:24,
+        display:"inline-flex",alignItems:"center"}}>{label}</button>
+    {open&&<>
+      <div onMouseDown={e=>{e.preventDefault();setOpen(false);}} style={{position:"fixed",inset:0,zIndex:1999}}/>
+      <div style={{position:"absolute",top:"calc(100% + 4px)",left:0,zIndex:2000,
+        background:T.b2,border:`1px solid ${T.bd}`,borderRadius:6,padding:5,
+        display:"grid",gridTemplateColumns:"repeat(5,18px)",gap:3,
+        boxShadow:"0 4px 14px rgba(0,0,0,0.28)"}}>
+        {colors.map((c,i)=><div key={i}
+          onMouseDown={e=>{e.preventDefault();onSelect(c);setOpen(false);}}
+          style={{width:18,height:18,borderRadius:3,cursor:"pointer",
+            background:c==="transparent"
+              ?"linear-gradient(135deg,#ccc 25%,transparent 25%,transparent 75%,#ccc 75%),linear-gradient(135deg,#ccc 25%,transparent 25%,transparent 75%,#ccc 75%)"
+              :c,
+            backgroundSize:"8px 8px",backgroundPosition:"0 0,4px 4px",
+            border:`1px solid ${T.bd}40`,outline:"1px solid transparent"}}/>)}
+      </div>
+    </>}
+  </div>;
+}
+
+function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
+  const editorRef=useRef(null);
+  const savedRange=useRef(null);
+  const[showLink,setShowLink]=useState(false);
+  const[showTable,setShowTable]=useState(false);
+  const[linkUrl,setLinkUrl]=useState("");
+  const[tRows,setTRows]=useState(3);
+  const[tCols,setTCols]=useState(3);
+
+  useEffect(()=>{if(editorRef.current)editorRef.current.innerHTML=initialValue||"";},[]);
+
+  const saveRange=()=>{try{const s=window.getSelection();if(s&&s.rangeCount>0)savedRange.current=s.getRangeAt(0).cloneRange();}catch(e){}};
+  const restoreRange=()=>{try{if(savedRange.current&&editorRef.current){editorRef.current.focus();const s=window.getSelection();s.removeAllRanges();s.addRange(savedRange.current);}}catch(e){editorRef.current?.focus();}};
+  const emit=()=>onChange(editorRef.current?.innerHTML||"");
+  const exec=(cmd,val=null)=>{restoreRange();document.execCommand(cmd,false,val);emit();};
+
+  const insertTable=()=>{
+    restoreRange();
+    const r=Math.max(1,Math.min(20,tRows)),c=Math.max(1,Math.min(10,tCols));
+    let h='<br><table style="border-collapse:collapse;width:100%;margin:8px 0"><tbody>';
+    for(let ri=0;ri<r;ri++){h+='<tr>';
+      for(let ci=0;ci<c;ci++){
+        const t=ri===0?'th':'td';
+        const s=`border:1px solid #888;padding:6px 10px;min-width:60px;text-align:left;${ri===0?"background:rgba(128,128,128,0.12);font-weight:600":""}`;
+        h+=`<${t} style="${s}"> </${t}>`;}
+      h+='</tr>';}
+    h+='</tbody></table><br>';
+    document.execCommand('insertHTML',false,h);emit();setShowTable(false);
+  };
+  const insertLink=()=>{
+    if(!linkUrl.trim()){setShowLink(false);return;}
+    restoreRange();
+    const url=linkUrl.trim().startsWith("http")?linkUrl.trim():"https://"+linkUrl.trim();
+    const s=window.getSelection();
+    if(s&&!s.isCollapsed)document.execCommand('createLink',false,url);
+    else document.execCommand('insertHTML',false,`<a href="${url}" target="_blank">${url}</a>`);
+    emit();setShowLink(false);setLinkUrl("");
+  };
+  const insertCb=()=>{
+    restoreRange();
+    document.execCommand('insertHTML',false,
+      `<div style="display:flex;align-items:flex-start;gap:6px;margin:3px 0;line-height:1.7"><input type="checkbox" style="width:15px;height:15px;margin-top:4px;cursor:pointer;flex-shrink:0"><span> To-do item</span></div>`);
+    emit();
+  };
+
+  const TC=["#e8e6f0","#f87171","#fb923c","#fbbf24","#4ade80","#60a5fa","#a78bfa","#f472b6","#94a3b8","#111111"];
+  const HC=["#fef08a","#bbf7d0","#bfdbfe","#fecaca","#e9d5ff","#fed7aa","#cffafe","transparent"];
+  const B={padding:"2px 6px",borderRadius:4,border:`1px solid ${T.bd}`,background:"transparent",
+    color:T.tx,cursor:"pointer",fontSize:"0.78rem",height:24,
+    display:"inline-flex",alignItems:"center",justifyContent:"center",minWidth:24,userSelect:"none"};
+  const Sep=()=><div style={{width:1,height:16,background:T.bd,margin:"0 2px",flexShrink:0}}/>;
+
+  return <div style={{border:`1px solid ${T.bd}`,borderRadius:8,overflow:"hidden",display:"flex",flexDirection:"column"}}>
+    {/* Toolbar */}
+    <div style={{background:T.b2,borderBottom:`1px solid ${T.bd}`,padding:"4px 8px",
+      display:"flex",flexWrap:"wrap",gap:2,alignItems:"center"}}>
+      <button style={{...B,fontWeight:700}} onMouseDown={e=>{e.preventDefault();exec('bold');}} title="Bold">B</button>
+      <button style={{...B,fontStyle:"italic"}} onMouseDown={e=>{e.preventDefault();exec('italic');}} title="Italic"><em>I</em></button>
+      <button style={{...B,textDecoration:"underline"}} onMouseDown={e=>{e.preventDefault();exec('underline');}} title="Underline"><u>U</u></button>
+      <button style={{...B,textDecoration:"line-through"}} onMouseDown={e=>{e.preventDefault();exec('strikeThrough');}} title="Strikethrough"><s>S</s></button>
+      <Sep/>
+      <button style={{...B,fontFamily:"'DM Serif Display',serif",fontWeight:700,fontSize:"0.88rem"}} onMouseDown={e=>{e.preventDefault();exec('formatBlock','h1');}} title="Heading 1">H1</button>
+      <button style={{...B,fontFamily:"'DM Serif Display',serif",fontWeight:700,fontSize:"0.8rem"}} onMouseDown={e=>{e.preventDefault();exec('formatBlock','h2');}} title="Heading 2">H2</button>
+      <button style={{...B,fontFamily:"'DM Serif Display',serif",fontWeight:600,fontSize:"0.74rem"}} onMouseDown={e=>{e.preventDefault();exec('formatBlock','h3');}} title="Heading 3">H3</button>
+      <button style={{...B,fontSize:"0.7rem"}} onMouseDown={e=>{e.preventDefault();exec('formatBlock','p');}} title="Normal">¶</button>
+      <Sep/>
+      <button style={B} onMouseDown={e=>{e.preventDefault();exec('justifyLeft');}} title="Align left">⬱</button>
+      <button style={B} onMouseDown={e=>{e.preventDefault();exec('justifyCenter');}} title="Center">☰</button>
+      <button style={B} onMouseDown={e=>{e.preventDefault();exec('justifyRight');}} title="Align right">⬰</button>
+      <Sep/>
+      <button style={{...B,fontSize:"0.72rem"}} onMouseDown={e=>{e.preventDefault();exec('insertUnorderedList');}} title="Bullets">• ≡</button>
+      <button style={{...B,fontSize:"0.72rem"}} onMouseDown={e=>{e.preventDefault();exec('insertOrderedList');}} title="Numbered">1.≡</button>
+      <button style={B} onMouseDown={e=>{e.preventDefault();insertCb();}} title="Checkbox">☑</button>
+      <button style={{...B,fontSize:"0.7rem"}} onMouseDown={e=>{e.preventDefault();exec('insertHorizontalRule');}} title="Divider">——</button>
+      <Sep/>
+      <TextColorPicker T={T} colors={TC}
+        onSelect={c=>{restoreRange();exec('foreColor',c);}}
+        label={<span style={{borderBottom:"3px solid #f87171",paddingBottom:1}}>A</span>}
+        title="Text color"/>
+      <TextColorPicker T={T} colors={HC}
+        onSelect={c=>{restoreRange();exec('hiliteColor',c==="transparent"?"inherit":c);}}
+        label={<span style={{background:"#fef08a",padding:"0 2px",borderRadius:2}}>H</span>}
+        title="Highlight"/>
+      <Sep/>
+      <button style={B} onMouseDown={e=>{e.preventDefault();saveRange();setShowLink(p=>!p);}} title="Link">🔗</button>
+      <button style={B} onMouseDown={e=>{e.preventDefault();saveRange();setShowTable(p=>!p);}} title="Table">⊞</button>
+      <Sep/>
+      <button style={{...B,fontSize:"0.65rem",color:T.t3}} onMouseDown={e=>{e.preventDefault();exec('removeFormat');}} title="Clear formatting">✕fmt</button>
+    </div>
+    {/* Link dialog */}
+    {showLink&&<div style={{background:T.b2,borderBottom:`1px solid ${T.bd}`,padding:"6px 10px",display:"flex",gap:7,alignItems:"center",flexWrap:"wrap"}}>
+      <span style={{fontFamily:MO,fontSize:"0.5rem",color:T.t2,whiteSpace:"nowrap"}}>Insert link:</span>
+      <input value={linkUrl} onChange={e=>setLinkUrl(e.target.value)} placeholder="https://…" autoFocus
+        onKeyDown={e=>e.key==="Enter"&&insertLink()}
+        style={{flex:1,minWidth:140,padding:"4px 8px",borderRadius:4,border:`1px solid ${T.bd}`,
+          background:T.ib,color:T.tx,fontSize:"0.82rem",outline:"none",fontFamily:"'DM Sans',sans-serif"}}/>
+      <button onClick={insertLink} style={{...B,background:T.ac,color:T.bg,border:"none",padding:"4px 12px",height:"auto"}}>Insert</button>
+      <button onClick={()=>{setShowLink(false);setLinkUrl("");}} style={B}>✕</button>
+    </div>}
+    {/* Table dialog */}
+    {showTable&&<div style={{background:T.b2,borderBottom:`1px solid ${T.bd}`,padding:"6px 10px",display:"flex",gap:7,alignItems:"center",flexWrap:"wrap"}}>
+      <span style={{fontFamily:MO,fontSize:"0.5rem",color:T.t2}}>Table:</span>
+      <input type="number" value={tRows} onChange={e=>setTRows(+e.target.value)} min={1} max={20}
+        style={{width:48,padding:"4px 6px",borderRadius:4,border:`1px solid ${T.bd}`,background:T.ib,color:T.tx,fontSize:"0.82rem",outline:"none"}}/>
+      <span style={{fontFamily:MO,fontSize:"0.48rem",color:T.t3}}>rows ×</span>
+      <input type="number" value={tCols} onChange={e=>setTCols(+e.target.value)} min={1} max={10}
+        style={{width:48,padding:"4px 6px",borderRadius:4,border:`1px solid ${T.bd}`,background:T.ib,color:T.tx,fontSize:"0.82rem",outline:"none"}}/>
+      <span style={{fontFamily:MO,fontSize:"0.48rem",color:T.t3}}>cols</span>
+      <button onClick={insertTable} style={{...B,background:T.ac,color:T.bg,border:"none",padding:"4px 12px",height:"auto"}}>Insert</button>
+      <button onClick={()=>setShowTable(false)} style={B}>✕</button>
+    </div>}
+    {/* Editor */}
+    <div className="rte-wrap" ref={editorRef}
+      contentEditable suppressContentEditableWarning
+      data-placeholder={placeholder||"Start writing…"}
+      onInput={emit} onMouseUp={saveRange} onKeyUp={saveRange}
+      onKeyDown={e=>{if(e.key==="Tab"){e.preventDefault();document.execCommand('insertHTML',false,'&nbsp;&nbsp;&nbsp;&nbsp;');}}}
+      style={{flex:1,minHeight:minHeight||300,padding:"14px 18px",color:T.tx,
+        fontSize:"0.92rem",lineHeight:1.8,outline:"none",
+        fontFamily:"'DM Sans',sans-serif",overflowY:"auto",
+        boxSizing:"border-box",cursor:"text",wordBreak:"break-word"}}/>
+  </div>;
+}
+
+function SleepModal({T,MO,SE,modal,setModal,sleepSettings,setSleepSettings,sleepDayData,setSleepDayData}){
+  const date=modal.sleepDate;
+  const dayData=useMemo(()=>sleepDayData[date]||{},[date,sleepDayData]);
+  const calcMins=(wt,bt)=>{if(!wt||!bt)return null;const[wH,wM]=wt.split(":").map(Number);const[bH,bM]=bt.split(":").map(Number);let w=wH*60+wM,b=bH*60+bM;if(w<=b)w+=1440;return w-b;};
+  const fmtMins=(m)=>m?`${Math.floor(m/60)}h ${m%60}m`:"—";
+
+  const[gEn,setGEn]=useState(sleepSettings.enabled);
+  const[gBed,setGBed]=useState(sleepSettings.bedtime||"22:00");
+  const[gWake,setGWake]=useState(sleepSettings.wakeTime||"07:00");
+  const[dBed,setDBed]=useState(dayData.bedtime||sleepSettings.bedtime||"22:00");
+  const[dWake,setDWake]=useState(dayData.wakeTime||sleepSettings.wakeTime||"07:00");
+  const[override,setOverride]=useState(!!(dayData.bedtime||dayData.wakeTime));
+  const[skip,setSkip]=useState(!!dayData.skip);
+  const[actH,setActH]=useState(dayData.actualHours!=null?String(dayData.actualHours):"");
+  const[actM,setActM]=useState(dayData.actualMins!=null?String(dayData.actualMins):"");
+
+  const intendedGlobal=calcMins(gWake,gBed);
+  const intendedDay=calcMins(override?dWake:gWake,override?dBed:gBed);
+  const IS2={background:T.ib,border:`1px solid ${T.ibd||T.bd}`,borderRadius:5,padding:"5px 9px",
+    color:T.tx,fontFamily:"'DM Sans',sans-serif",fontSize:"0.88rem",outline:"none"};
+  const LB={fontFamily:MO,fontSize:"0.44rem",color:T.t3,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:5,display:"block"};
+  const Toggle=({val,set,label,sub})=><div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+    <div onClick={()=>set(p=>!p)} style={{width:34,height:17,background:val?T.ac:T.b2,borderRadius:9,
+      border:`1px solid ${T.bd}`,position:"relative",cursor:"pointer",flexShrink:0,transition:"background 0.2s"}}>
+      <div style={{width:11,height:11,background:val?T.bg:T.t3,borderRadius:"50%",position:"absolute",
+        top:2,left:val?19:3,transition:"left 0.2s"}}/></div>
+    <div><div style={{fontFamily:MO,fontSize:"0.52rem",color:T.tx}}>{label}</div>
+      {sub&&<div style={{fontFamily:MO,fontSize:"0.43rem",color:T.t3,marginTop:1}}>{sub}</div>}</div>
+  </div>;
+
+  const dateLabel=date?$p(date).toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"}):null;
+
+  const save=()=>{
+    setSleepSettings({enabled:gEn,bedtime:gBed,wakeTime:gWake});
+    if(date){
+      if(override||skip||actH||actM){
+        setSleepDayData(p=>({...p,[date]:{...p[date],
+          bedtime:override?dBed:null,wakeTime:override?dWake:null,
+          skip,
+          actualHours:actH!==""?+actH:undefined,
+          actualMins:actM!==""?+actM:undefined,
+        }}));
+      } else {
+        setSleepDayData(p=>{const n={...p};delete n[date];return n;});
+      }
+    }
+    setModal(null);
+  };
+
+  return <div onClick={()=>setModal(null)}
+    style={{position:"fixed",inset:0,background:T.ov,zIndex:1000,display:"flex",
+      alignItems:"center",justifyContent:"center",padding:16}}>
+    <div onClick={e=>e.stopPropagation()}
+      style={{background:T.b3,border:`1px solid ${T.bd}`,borderRadius:14,
+        padding:"22px 26px",maxWidth:440,width:"100%",
+        boxShadow:"0 8px 32px rgba(0,0,0,0.28)",maxHeight:"90vh",overflowY:"auto"}}>
+      <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:18}}>
+        <div>
+          <div style={{fontFamily:SE,fontSize:"1.3rem",color:T.tx,marginBottom:2}}>Sleep Settings</div>
+          {dateLabel&&<div style={{fontFamily:MO,fontSize:"0.5rem",color:T.t2}}>{dateLabel}</div>}
+        </div>
+        <button onClick={()=>setModal(null)} style={{background:"none",border:"none",color:T.t3,cursor:"pointer",fontSize:"1.1rem"}}>✕</button>
+      </div>
+
+      {/* Global toggle */}
+      <div style={{padding:"10px 12px",borderRadius:8,background:T.b2,border:`1px solid ${T.bd}`,marginBottom:14}}>
+        <Toggle val={gEn} set={setGEn} label="Show sleep blocks on calendar" sub="Bedtime & wake-up appear as calendar indicators"/>
+      </div>
+
+      {gEn&&<>
+        {/* Default schedule */}
+        <div style={{marginBottom:16}}>
+          <span style={LB}>Default recurring schedule</span>
+          <div style={{display:"flex",gap:12}}>
+            <div style={{flex:1}}>
+              <span style={{...LB,marginBottom:3}}>🌙 Bedtime</span>
+              <input type="time" value={gBed} onChange={e=>setGBed(e.target.value)} style={{...IS2,width:"100%"}}/>
+            </div>
+            <div style={{flex:1}}>
+              <span style={{...LB,marginBottom:3}}>☀ Wake up</span>
+              <input type="time" value={gWake} onChange={e=>setGWake(e.target.value)} style={{...IS2,width:"100%"}}/>
+            </div>
+          </div>
+          {intendedGlobal&&<div style={{fontFamily:MO,fontSize:"0.46rem",color:T.t2,marginTop:5}}>
+            → {fmtMins(intendedGlobal)} planned sleep per night
+          </div>}
+        </div>
+
+        {/* Day override */}
+        {date&&<div style={{borderTop:`1px solid ${T.bd}`,paddingTop:14}}>
+          <span style={LB}>Override for {dateLabel}</span>
+          <Toggle val={skip} set={setSkip} label="Skip sleep tracking for this day"/>
+          {!skip&&<>
+            <Toggle val={override} set={setOverride} label="Different times for this day only"/>
+            {override&&<div style={{display:"flex",gap:12,marginBottom:12}}>
+              <div style={{flex:1}}>
+                <span style={{...LB,marginBottom:3}}>🌙 Bedtime</span>
+                <input type="time" value={dBed} onChange={e=>setDBed(e.target.value)} style={{...IS2,width:"100%"}}/>
+              </div>
+              <div style={{flex:1}}>
+                <span style={{...LB,marginBottom:3}}>☀ Wake up</span>
+                <input type="time" value={dWake} onChange={e=>setDWake(e.target.value)} style={{...IS2,width:"100%"}}/>
+              </div>
+            </div>}
+            {intendedDay&&override&&<div style={{fontFamily:MO,fontSize:"0.46rem",color:T.t2,marginBottom:12}}>
+              → {fmtMins(intendedDay)} planned this night
+            </div>}
+            <span style={LB}>Log actual sleep for this night</span>
+            <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:4}}>
+              <input type="number" value={actH} onChange={e=>setActH(e.target.value)} min={0} max={24}
+                placeholder="0" style={{...IS2,width:58}}/>
+              <span style={{fontFamily:MO,fontSize:"0.5rem",color:T.t3}}>h</span>
+              <input type="number" value={actM} onChange={e=>setActM(e.target.value)} min={0} max={59}
+                placeholder="0" style={{...IS2,width:58}}/>
+              <span style={{fontFamily:MO,fontSize:"0.5rem",color:T.t3}}>min</span>
+              {intendedDay&&<span style={{fontFamily:MO,fontSize:"0.43rem",color:T.t3,marginLeft:4}}>planned: {fmtMins(intendedDay)}</span>}
+            </div>
+          </>}
+        </div>}
+      </>}
+
+      <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:18}}>
+        <button onClick={()=>setModal(null)} style={{padding:"7px 16px",borderRadius:6,border:`1px solid ${T.bd}`,
+          background:"transparent",color:T.t2,cursor:"pointer",fontFamily:MO,fontSize:"0.54rem"}}>Cancel</button>
+        <button onClick={save} style={{padding:"7px 22px",borderRadius:6,border:"none",
+          background:T.ac,color:T.bg,cursor:"pointer",fontFamily:MO,fontSize:"0.56rem",fontWeight:600}}>Save</button>
+      </div>
+    </div>
+  </div>;
+}
+
+function SleepSection({T,MO,SE,sleepSettings,setSleepSettings,sleepDayData,setSleepDayData}){
+  const todayStr=$d(new Date());
+  const todayData=sleepDayData[todayStr]||{};
+  const[logH,setLogH]=useState(todayData.actualHours!=null?String(todayData.actualHours):"");
+  const[logM,setLogM]=useState(todayData.actualMins!=null?String(todayData.actualMins):"");
+
+  const calcMins=(wt,bt)=>{if(!wt||!bt)return 0;const[wH,wM]=wt.split(":").map(Number);const[bH,bM]=bt.split(":").map(Number);let w=wH*60+wM,b=bH*60+bM;if(w<=b)w+=1440;return w-b;};
+  const fmtMins=(m)=>`${Math.floor(m/60)}h ${m%60}m`;
+
+  // Last 7 days
+  const days=Array.from({length:7},(_,i)=>{const d=new Date();d.setDate(d.getDate()-6+i);return $d(d);});
+  const dayStats=days.map(ds=>{
+    const ovr=sleepDayData[ds]||{};
+    const bt=ovr.bedtime||sleepSettings.bedtime||"22:00";
+    const wt=ovr.wakeTime||sleepSettings.wakeTime||"07:00";
+    const intended=calcMins(wt,bt);
+    const actual=ovr.actualHours!=null?(+ovr.actualHours*60+(+ovr.actualMins||0)):null;
+    return{ds,intended,actual,skip:!!ovr.skip};
+  });
+  const maxMins=Math.max(...dayStats.map(d=>Math.max(d.intended,d.actual||0)),480);
+  const validActuals=dayStats.filter(d=>d.actual!=null&&!d.skip);
+  const avgActual=validActuals.length?Math.round(validActuals.reduce((s,d)=>s+d.actual,0)/validActuals.length):null;
+  const avgIntended=Math.round(dayStats.filter(d=>!d.skip).reduce((s,d)=>s+d.intended,0)/Math.max(1,dayStats.filter(d=>!d.skip).length));
+
+  const saveLog=()=>{
+    const h=Math.max(0,+logH||0),m=Math.max(0,Math.min(59,+logM||0));
+    setSleepDayData(p=>({...p,[todayStr]:{...p[todayStr],actualHours:h,actualMins:m}}));
+  };
+
+  return <div style={{background:T.b3,border:`1px solid ${T.bd}`,borderRadius:10,padding:"16px 20px",marginBottom:20}}>
+    <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:12,flexWrap:"wrap",gap:8}}>
+      <div style={{fontFamily:MO,fontSize:"0.5rem",color:T.t3,textTransform:"uppercase",letterSpacing:"0.08em"}}>Sleep Tracker</div>
+      {!sleepSettings.enabled&&<div style={{fontFamily:MO,fontSize:"0.52rem",color:T.t3}}>Enable in Sleep Settings on calendar to track sleep.</div>}
+      {sleepSettings.enabled&&<div style={{display:"flex",gap:18,flexWrap:"wrap"}}>
+        <div><div style={{fontFamily:SE,fontSize:"1.15rem",color:T.ac,lineHeight:1}}>{fmtMins(avgIntended)}</div>
+          <div style={{fontFamily:MO,fontSize:"0.43rem",color:T.t3,marginTop:1}}>avg planned/night</div></div>
+        {avgActual&&<div><div style={{fontFamily:SE,fontSize:"1.15rem",color:"#4ade80",lineHeight:1}}>{fmtMins(avgActual)}</div>
+          <div style={{fontFamily:MO,fontSize:"0.43rem",color:T.t3,marginTop:1}}>avg actual/night</div></div>}
+      </div>}
+    </div>
+    {sleepSettings.enabled&&<>
+      {/* Bar chart */}
+      <div style={{display:"flex",gap:5,alignItems:"flex-end",height:90,marginBottom:8}}>
+        {dayStats.map(({ds,intended,actual,skip})=>{
+          const label=new Date(ds+"T12:00").toLocaleDateString("en-US",{weekday:"short"}).slice(0,2);
+          const isToday=ds===todayStr;
+          const iH=maxMins>0?(intended/maxMins)*74:0;
+          const aH=actual!=null&&!skip&&maxMins>0?(actual/maxMins)*74:null;
+          return <div key={ds} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
+            <div style={{flex:1,width:"100%",display:"flex",gap:2,alignItems:"flex-end",justifyContent:"center"}}>
+              <div title={`Planned: ${fmtMins(intended)}`}
+                style={{flex:1,maxWidth:13,background:`${T.ac}40`,borderRadius:"2px 2px 0 0",height:iH,minHeight:2,
+                  border:isToday?`1px solid ${T.ac}80`:"none"}}/>
+              {aH!=null
+                ?<div title={`Actual: ${fmtMins(actual)}`}
+                  style={{flex:1,maxWidth:13,background:"#4ade8066",border:"1px solid #4ade8088",borderRadius:"2px 2px 0 0",height:aH,minHeight:2}}/>
+                :isToday?<div style={{flex:1,maxWidth:13,background:T.b2,border:`1px dashed ${T.bd}`,borderRadius:"2px 2px 0 0",height:24}}/>
+                :null}
+            </div>
+            <div style={{fontFamily:MO,fontSize:"0.37rem",color:isToday?T.ac:T.t3}}>{label}</div>
+          </div>;
+        })}
+      </div>
+      {/* Legend */}
+      <div style={{display:"flex",gap:12,marginBottom:14}}>
+        {[["Planned",`${T.ac}40`,"none"],["Actual","#4ade8066","1px solid #4ade8088"]].map(([l,bg,bo])=>
+          <div key={l} style={{display:"flex",alignItems:"center",gap:5}}>
+            <div style={{width:11,height:8,background:bg,border:bo,borderRadius:2}}/>
+            <span style={{fontFamily:MO,fontSize:"0.43rem",color:T.t3}}>{l}</span>
+          </div>)}
+      </div>
+      {/* Log today */}
+      <div style={{borderTop:`1px solid ${T.bd}`,paddingTop:12}}>
+        <div style={{fontFamily:MO,fontSize:"0.46rem",color:T.t3,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:7}}>Log actual sleep</div>
+        <div style={{display:"flex",gap:7,alignItems:"center",flexWrap:"wrap"}}>
+          <input type="number" value={logH} onChange={e=>setLogH(e.target.value)} min={0} max={24} placeholder="0"
+            style={{width:52,padding:"5px 8px",borderRadius:5,border:`1px solid ${T.bd}`,background:T.ib,color:T.tx,fontSize:"0.88rem",outline:"none"}}/>
+          <span style={{fontFamily:MO,fontSize:"0.5rem",color:T.t3}}>h</span>
+          <input type="number" value={logM} onChange={e=>setLogM(e.target.value)} min={0} max={59} placeholder="0"
+            style={{width:52,padding:"5px 8px",borderRadius:5,border:`1px solid ${T.bd}`,background:T.ib,color:T.tx,fontSize:"0.88rem",outline:"none"}}/>
+          <span style={{fontFamily:MO,fontSize:"0.5rem",color:T.t3}}>min</span>
+          <button onClick={saveLog} style={{padding:"5px 14px",borderRadius:5,border:"none",
+            background:T.ac,color:T.bg,cursor:"pointer",fontFamily:MO,fontSize:"0.52rem",fontWeight:600}}>Log</button>
+          {todayData.actualHours!=null&&<span style={{fontFamily:MO,fontSize:"0.46rem",color:"#4ade80"}}>
+            ✓ {todayData.actualHours}h {todayData.actualMins||0}m saved</span>}
+        </div>
+      </div>
+    </>}
+  </div>;
+}
+
+function DayCountdownSection({T,MO,SE,sleepSettings,sleepDayData}){
+  const[now,setNow]=useState(new Date());
+  useEffect(()=>{const iv=setInterval(()=>setNow(new Date()),1000);return()=>clearInterval(iv);},[]);
+
+  const todayStr=$d(new Date());
+  const ovr=sleepDayData[todayStr]||{};
+  const wt=(ovr.wakeTime||sleepSettings?.wakeTime||"07:00");
+  const bt=(ovr.bedtime||sleepSettings?.bedtime||"22:00");
+  const[wH,wM]=wt.split(":").map(Number);
+  const[bH,bM]=bt.split(":").map(Number);
+
+  const dayStartMins=wH*60+wM;
+  let dayEndMins=bH*60+bM;
+  if(dayEndMins<=dayStartMins)dayEndMins+=1440;
+  const totalMins=dayEndMins-dayStartMins;
+
+  const nowMins=now.getHours()*60+now.getMinutes()+now.getSeconds()/60;
+  const nowAdj=(nowMins<dayStartMins-60)?nowMins+1440:nowMins;
+  const elapsed=Math.max(0,Math.min(totalMins,nowAdj-dayStartMins));
+  const remaining=Math.max(0,totalMins-elapsed);
+  const pctElapsed=totalMins>0?elapsed/totalMins*100:0;
+  const pctLeft=100-pctElapsed;
+
+  const remSecs=Math.round(remaining*60)-now.getSeconds();
+  const dH=Math.floor(Math.max(0,remSecs)/3600);
+  const dM=Math.floor((Math.max(0,remSecs)%3600)/60);
+  const dS=Math.max(0,remSecs)%60;
+
+  const isDone=remaining<=0;
+  const notStarted=elapsed<=0&&nowAdj<dayStartMins;
+  const urgColor=pctLeft<10?"#ef4444":pctLeft<25?"#f97316":pctLeft<50?"#eab308":T.ac;
+
+  // SVG clock
+  const R=38,CX=50,CY=50;
+  const circ=2*Math.PI*R;
+  const pct=pctElapsed/100;
+  const tipAngle=-Math.PI/2+pct*2*Math.PI;
+  const tipX=CX+R*Math.cos(tipAngle);
+  const tipY=CY+R*Math.sin(tipAngle);
+
+  return <div style={{background:T.b3,border:`1px solid ${T.bd}`,borderRadius:10,padding:"18px 22px",marginBottom:20}}>
+    <div style={{fontFamily:MO,fontSize:"0.5rem",color:T.t3,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:14}}>
+      Day Countdown
+    </div>
+    <div style={{display:"flex",alignItems:"center",gap:20,flexWrap:"wrap"}}>
+      {/* Doomsday clock SVG */}
+      <svg width={100} height={100} style={{flexShrink:0}}>
+        {/* Tick marks */}
+        {Array.from({length:12},(_,i)=>{const a=(i/12)*2*Math.PI-Math.PI/2;const r1=R-7,r2=R-1;
+          return <line key={i} x1={CX+r1*Math.cos(a)} y1={CY+r1*Math.sin(a)}
+            x2={CX+r2*Math.cos(a)} y2={CY+r2*Math.sin(a)}
+            stroke={T.bd} strokeWidth={1.5}/>;
+        })}
+        {/* Track */}
+        <circle cx={CX} cy={CY} r={R} fill="none" stroke={T.b2} strokeWidth={7}/>
+        {/* Elapsed arc */}
+        {!notStarted&&<circle cx={CX} cy={CY} r={R} fill="none" stroke={urgColor} strokeWidth={7}
+          strokeDasharray={circ} strokeDashoffset={circ*(1-pct)}
+          strokeLinecap="round" transform={`rotate(-90 ${CX} ${CY})`}
+          style={{transition:"stroke-dashoffset 1s linear,stroke 0.5s"}}/>}
+        {/* Tip pulse dot */}
+        {!isDone&&!notStarted&&<circle cx={tipX} cy={tipY} r={5} fill={urgColor}
+          style={{animation:"sleepPulse 1.2s ease-in-out infinite"}}/>}
+        {/* Center */}
+        <text x={CX} y={CY-4} textAnchor="middle"
+          style={{fontFamily:"'DM Mono',monospace",fontSize:"0.58rem",fontWeight:700,fill:urgColor}}>
+          {isDone?"Done":notStarted?"—":pctLeft.toFixed(0)+"%"}
+        </text>
+        <text x={CX} y={CY+9} textAnchor="middle"
+          style={{fontFamily:"'DM Mono',monospace",fontSize:"0.42rem",fill:T.t3}}>
+          {isDone?"day over":notStarted?"not started":"left"}
+        </text>
+      </svg>
+
+      {/* Right side text */}
+      <div style={{flex:1,minWidth:160}}>
+        {notStarted
+          ?<div style={{fontFamily:MO,fontSize:"0.6rem",color:T.t2}}>Your day starts at {wt}</div>
+          :isDone
+          ?<div style={{fontFamily:SE,fontSize:"1.3rem",color:T.t3}}>Day complete</div>
+          :<>
+            <div style={{fontFamily:"'DM Mono',monospace",fontSize:"1.9rem",color:urgColor,
+              fontWeight:700,lineHeight:1,letterSpacing:"-0.02em",marginBottom:3,
+              animation:"dayTick 1s ease-in-out infinite"}}>
+              {String(dH).padStart(2,"0")}:{String(dM).padStart(2,"0")}:{String(dS).padStart(2,"0")}
+            </div>
+            <div style={{fontFamily:MO,fontSize:"0.5rem",color:T.t2,marginBottom:10}}>
+              remaining · {wt}–{bt}
+            </div>
+          </>}
+        {/* Progress bar */}
+        {!notStarted&&<>
+          <div style={{display:"flex",justifyContent:"space-between",fontFamily:MO,fontSize:"0.43rem",color:T.t3,marginBottom:3}}>
+            <span>{Math.floor(elapsed/60)}h {Math.floor(elapsed%60)}m elapsed ({pctElapsed.toFixed(1)}%)</span>
+            <span>{pctLeft.toFixed(1)}% left</span>
+          </div>
+          <div style={{height:6,background:T.b2,borderRadius:3,overflow:"hidden"}}>
+            <div style={{height:"100%",background:urgColor,width:`${pctElapsed}%`,
+              borderRadius:3,transition:"width 1s linear"}}/>
+          </div>
+          <div style={{display:"flex",justifyContent:"space-between",fontFamily:MO,fontSize:"0.38rem",color:T.t3,marginTop:3}}>
+            <span>☀ {wt}</span>
+            <span>🌙 {bt}</span>
+          </div>
+          <div style={{fontFamily:MO,fontSize:"0.43rem",color:T.t3,marginTop:5}}>
+            Day length: {Math.floor(totalMins/60)}h {totalMins%60}m
+          </div>
+        </>}
+      </div>
+    </div>
+  </div>;
+}
+
 // ═══ FOCUS DASHBOARD ═══
 const FOCUS_STORE_KEY="tc_focus_prefs_v1";
 const CHAT_MSGS_KEY="tc_chat_msgs_v1";
@@ -2994,7 +3535,7 @@ const TONES=[
   {key:"friend",label:"Brutally Honest Friend",emoji:"🫵",desc:"Real talk, no filter.",sys:"You are the user's brutally honest best friend. You say exactly what you think, call out their BS with humor, but ultimately want them to succeed. Use casual language, light sarcasm when appropriate, but always circle back to actionable advice."},
 ];
 
-function FocusDashboard({T,MO,SE,tasks,events,courses,cats,exams,assignments,sem,setChatOpen}){
+function FocusDashboard({T,MO,SE,tasks,events,courses,cats,exams,assignments,sem,setChatOpen,sleepSettings,setSleepSettings,sleepDayData,setSleepDayData}){
   const saved=useMemo(()=>{try{const s=localStorage.getItem(FOCUS_STORE_KEY);return s?JSON.parse(s):{};}catch(e){return{};}}, []);
   const save=(d)=>{try{localStorage.setItem(FOCUS_STORE_KEY,JSON.stringify(d));}catch(e){}};
 
@@ -3257,6 +3798,16 @@ function FocusDashboard({T,MO,SE,tasks,events,courses,cats,exams,assignments,sem
           })}
         </div>}
       </div>
+
+      {/* Day countdown */}
+      <DayCountdownSection T={T} MO={MO} SE={SE} sleepSettings={sleepSettings||{}} sleepDayData={sleepDayData||{}}/>
+
+      {/* Sleep tracker */}
+      <SleepSection T={T} MO={MO} SE={SE}
+        sleepSettings={sleepSettings||{enabled:false,bedtime:"22:00",wakeTime:"07:00"}}
+        setSleepSettings={setSleepSettings||function(){}}
+        sleepDayData={sleepDayData||{}}
+        setSleepDayData={setSleepDayData||function(){}}/>
 
       {/* Coach chat */}
       <div style={cardStyle}>
@@ -5298,185 +5849,258 @@ function TasksDashboard({T,MO,SE,tasks,cats,courses,aT,uT,dT,tT,pushUndo}){
 
 // ═══ NOTES DASHBOARD ═══
 function NotesDashboard({T,MO,SE,quickNotes,setQuickNotes,journalEntries,setJournalEntries}){
-  const[journalTab,setJournalTab]=useState("write");
+  // ── Tabs / mode ──
+  const[journalTab,setJournalTab]=useState("write"); // "write" | "browse"
+  const[journalMode,setJournalMode]=useState("daily"); // "daily" | "weekly"
+  // ── Daily state ──
   const[journalDate,setJournalDate]=useState($d(new Date()));
-  const[journalText,setJournalText]=useState("");
+  // ── Weekly state ──
+  const getMonday=(ds)=>{const d=$p(ds);const day=d.getDay();const diff=day===0?-6:1-day;const m=new Date(d);m.setDate(d.getDate()+diff);return $d(m);};
+  const[weekStart,setWeekStart]=useState(()=>getMonday($d(new Date())));
+  // ── Editor html ──
+  const[editorHtml,setEditorHtml]=useState("");
+  // ── Browse ──
   const[browseSel,setBrowseSel]=useState(null);
+  const[browseFilter,setBrowseFilter]=useState("all"); // "all"|"daily"|"weekly"
+  // ── Notes ──
   const[notesSaved,setNotesSaved]=useState(false);
   const saveTimerRef=useRef(null);
 
-  useEffect(()=>{
-    const entry=(journalEntries||[]).find(e=>e.date===journalDate);
-    setJournalText(entry?.text||"");
-  },[journalDate,journalEntries]);
+  // Current entry key
+  const entryKey=journalMode==="daily"?journalDate:weekStart;
+  const entryType=journalMode==="daily"?"daily":"weekly";
+
+  // Find current entry (support old entries without type)
+  const findEntry=(key,type)=>(journalEntries||[]).find(e=>e.date===key&&(e.type===type||(type==="daily"&&!e.type)));
+
+  // Load editor content when key/mode changes — the RichTextEditor remounts via key prop
+  const currentEntry=findEntry(entryKey,entryType);
+  const initialContent=currentEntry?.content||currentEntry?.text||"";
 
   const handleNotesChange=(v)=>{
-    setQuickNotes(v);
-    setNotesSaved(false);
+    setQuickNotes(v);setNotesSaved(false);
     if(saveTimerRef.current)clearTimeout(saveTimerRef.current);
     saveTimerRef.current=setTimeout(()=>setNotesSaved(true),800);
   };
 
-  const saveJournalEntry=()=>{
-    if(!journalText.trim()){
-      setJournalEntries(p=>(p||[]).filter(e=>e.date!==journalDate));
+  const saveEntry=()=>{
+    const html=editorHtml.trim();
+    const plainText=html.replace(/<[^>]+>/g," ").replace(/\s+/g," ").trim();
+    if(!plainText){
+      setJournalEntries(p=>(p||[]).filter(e=>!(e.date===entryKey&&(e.type===entryType||(entryType==="daily"&&!e.type)))));
       return;
     }
     setJournalEntries(p=>{
       const arr=p||[];
-      const existing=arr.find(e=>e.date===journalDate);
-      if(existing)return arr.map(e=>e.date===journalDate?{...e,text:journalText,_updatedAt:Date.now()}:e);
-      return[...arr,{id:gi(),date:journalDate,text:journalText,_createdAt:Date.now()}];
+      const existing=findEntry(entryKey,entryType);
+      if(existing)return arr.map(e=>e.id===existing.id?{...e,content:html,text:plainText,_updatedAt:Date.now()}:e);
+      return[...arr,{id:gi(),date:entryKey,type:entryType,content:html,text:plainText,_createdAt:Date.now()}];
     });
   };
 
-  const deleteJournalEntry=(date)=>{
-    setJournalEntries(p=>(p||[]).filter(e=>e.date!==date));
-    if(date===journalDate)setJournalText("");
+  const autoSaveTimerRef=useRef(null);
+  const onEditorChange=(html)=>{
+    setEditorHtml(html);
+    if(autoSaveTimerRef.current)clearTimeout(autoSaveTimerRef.current);
+    autoSaveTimerRef.current=setTimeout(()=>{
+      const plain=html.replace(/<[^>]+>/g," ").replace(/\s+/g," ").trim();
+      if(plain){
+        setJournalEntries(p=>{
+          const arr=p||[];
+          const existing=(arr||[]).find(e=>e.date===entryKey&&(e.type===entryType||(entryType==="daily"&&!e.type)));
+          if(existing)return arr.map(e=>e.id===existing.id?{...e,content:html,text:plain,_updatedAt:Date.now()}:e);
+          return[...arr,{id:gi(),date:entryKey,type:entryType,content:html,text:plain,_createdAt:Date.now()}];
+        });
+      }
+    },2000);
+  };
+
+  const deleteEntry=(key,type)=>{
+    setJournalEntries(p=>(p||[]).filter(e=>!(e.date===key&&(e.type===type||(type==="daily"&&!e.type)))));
     setBrowseSel(null);
   };
 
-  const sortedEntries=[...(journalEntries||[])].sort((a,b)=>b.date.localeCompare(a.date));
-  const IS3={width:"100%",padding:"12px 14px",borderRadius:7,border:`1px solid ${T.bd}`,
-    background:T.ib,color:T.tx,fontSize:"0.9rem",fontFamily:"'DM Sans',sans-serif",
-    resize:"vertical",lineHeight:1.7,outline:"none",boxSizing:"border-box"};
+  // Week label helper
+  const weekLabel=(ms)=>{const s=$p(ms),e=$a(s,6);return `${s.toLocaleDateString("en-US",{month:"short",day:"numeric"})} – ${e.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}`;};
+
   const todayStr=$d(new Date());
   const isMobile=window.innerWidth<768;
 
-  return <div style={{flex:1,overflow:"auto",padding:isMobile?"16px 14px 40px":"28px 32px 48px",background:T.bg,boxSizing:"border-box"}}>
+  // All entries sorted newest first, filtered
+  const allEntries=[...(journalEntries||[])].sort((a,b)=>b.date.localeCompare(a.date));
+  const filteredEntries=browseFilter==="all"?allEntries
+    :browseFilter==="weekly"?allEntries.filter(e=>e.type==="weekly")
+    :allEntries.filter(e=>e.type==="daily"||!e.type);
+
+  const IS3={width:"100%",padding:"12px 14px",borderRadius:7,border:`1px solid ${T.bd}`,
+    background:T.ib,color:T.tx,fontSize:"0.9rem",fontFamily:"'DM Sans',sans-serif",
+    resize:"vertical",lineHeight:1.7,outline:"none",boxSizing:"border-box"};
+  const BtnSm={padding:"4px 10px",borderRadius:5,border:`1px solid ${T.bd}`,background:"transparent",
+    color:T.t2,cursor:"pointer",fontFamily:MO,fontSize:"0.52rem"};
+
+  return <div style={{flex:1,overflow:"auto",padding:isMobile?"14px 12px 40px":"28px 32px 48px",background:T.bg,boxSizing:"border-box"}}>
     <div style={{maxWidth:1200,margin:"0 auto"}}>
 
       {/* Header */}
-      <div style={{marginBottom:24}}>
+      <div style={{marginBottom:22}}>
         <h2 style={{fontFamily:SE,fontSize:"2rem",fontWeight:400,margin:0,color:T.tx,letterSpacing:"-0.02em"}}>
           Notes<span style={{color:T.ac,fontStyle:"italic"}}> &amp; Journal</span>
         </h2>
         <div style={{fontFamily:MO,fontSize:"0.58rem",color:T.t2,letterSpacing:"0.05em",marginTop:4}}>
-          Quick notes auto-save · Journal entries sync across devices
+          Quick notes auto-save · Rich text journal syncs across devices
         </div>
       </div>
 
-      {/* Two-column layout on desktop, stacked on mobile */}
       <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:20,alignItems:"start"}}>
 
         {/* LEFT: Quick Notes */}
         <div style={{background:T.b3,border:`1px solid ${T.bd}`,borderRadius:12,padding:"20px 22px"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-            <div style={{fontFamily:MO,fontSize:"0.56rem",fontWeight:600,textTransform:"uppercase",
-              letterSpacing:"0.08em",color:T.t2}}>Quick Notes</div>
-            <span style={{fontFamily:MO,fontSize:"0.5rem",color:T.t3,opacity:notesSaved?1:0,transition:"opacity 0.3s"}}>
-              Saved ✓
-            </span>
+            <div style={{fontFamily:MO,fontSize:"0.56rem",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.08em",color:T.t2}}>Quick Notes</div>
+            <span style={{fontFamily:MO,fontSize:"0.5rem",color:T.t3,opacity:notesSaved?1:0,transition:"opacity 0.3s"}}>Saved ✓</span>
           </div>
           <textarea value={quickNotes||""} onChange={e=>handleNotesChange(e.target.value)}
-            placeholder="Type anything here — ideas, reminders, links, to-read lists, scratch space…"
-            style={{...IS3,minHeight:isMobile?200:480}}/>
-          <div style={{fontFamily:MO,fontSize:"0.46rem",color:T.t3,marginTop:8,letterSpacing:"0.04em"}}>
-            Auto-saves as you type · Synced to your account
-          </div>
+            placeholder="Ideas, reminders, links, scratch space…"
+            style={{...IS3,minHeight:isMobile?180:440}}/>
+          <div style={{fontFamily:MO,fontSize:"0.46rem",color:T.t3,marginTop:8}}>Auto-saves as you type · Synced to your account</div>
         </div>
 
         {/* RIGHT: Journal */}
         <div>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16,flexWrap:"wrap",gap:8}}>
+          {/* Journal header row */}
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14,flexWrap:"wrap",gap:8}}>
             <h3 style={{fontFamily:SE,fontSize:"1.4rem",fontWeight:400,margin:0,color:T.tx}}>
               Journal<span style={{color:T.ac,fontStyle:"italic"}}> Entries</span>
             </h3>
-            <div style={{display:"flex",background:T.b3,border:`1px solid ${T.bd}`,borderRadius:6,overflow:"hidden"}}>
-              {[["write","Write"],["browse","Browse"+(sortedEntries.length?` (${sortedEntries.length})`:"")]].map(([k,l])=>
-                <button key={k} onClick={()=>{setJournalTab(k);setBrowseSel(null);}}
-                  style={{padding:"5px 16px",border:"none",cursor:"pointer",
-                    fontFamily:MO,fontSize:"0.54rem",letterSpacing:"0.04em",
-                    background:journalTab===k?T.ac:"transparent",
-                    color:journalTab===k?T.bg:T.t3,whiteSpace:"nowrap"}}>{l}</button>
-              )}
+            <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+              {/* Daily / Weekly mode toggle */}
+              <div style={{display:"flex",background:T.b2,border:`1px solid ${T.bd}`,borderRadius:6,overflow:"hidden"}}>
+                {[["daily","Daily"],["weekly","Weekly"]].map(([k,l])=>
+                  <button key={k} onClick={()=>{setJournalMode(k);setJournalTab("write");setBrowseSel(null);}}
+                    style={{padding:"4px 12px",border:"none",cursor:"pointer",fontFamily:MO,fontSize:"0.52rem",
+                      background:journalMode===k?T.ac:"transparent",color:journalMode===k?T.bg:T.t3}}>{l}</button>)}
+              </div>
+              {/* Write / Browse tab */}
+              <div style={{display:"flex",background:T.b3,border:`1px solid ${T.bd}`,borderRadius:6,overflow:"hidden"}}>
+                {[["write","Write"],["browse",`Browse (${allEntries.length})`]].map(([k,l])=>
+                  <button key={k} onClick={()=>{setJournalTab(k);setBrowseSel(null);}}
+                    style={{padding:"4px 13px",border:"none",cursor:"pointer",fontFamily:MO,fontSize:"0.52rem",letterSpacing:"0.03em",
+                      background:journalTab===k?T.ac:"transparent",color:journalTab===k?T.bg:T.t3,whiteSpace:"nowrap"}}>{l}</button>)}
+              </div>
             </div>
           </div>
 
-          {journalTab==="write"&&<div style={{background:T.b3,border:`1px solid ${T.bd}`,borderRadius:12,padding:"20px 22px"}}>
-            {/* Date nav */}
-            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:16,flexWrap:"wrap"}}>
-              <div style={{fontFamily:MO,fontSize:"0.52rem",fontWeight:600,textTransform:"uppercase",
-                letterSpacing:"0.08em",color:T.t2}}>Date</div>
+          {/* ── WRITE TAB ── */}
+          {journalTab==="write"&&<div style={{background:T.b3,border:`1px solid ${T.bd}`,borderRadius:12,padding:"18px 20px"}}>
+
+            {/* Date / Week navigation */}
+            {journalMode==="daily"&&<div style={{display:"flex",alignItems:"center",gap:7,marginBottom:14,flexWrap:"wrap"}}>
+              <span style={{fontFamily:MO,fontSize:"0.52rem",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.08em",color:T.t2}}>Date</span>
               <input type="date" value={journalDate} onChange={e=>setJournalDate(e.target.value)}
-                style={{padding:"5px 10px",borderRadius:5,border:`1px solid ${T.bd}`,background:T.ib,color:T.tx,
-                  fontSize:"0.8rem",fontFamily:MO,outline:"none"}}/>
-              <div style={{display:"flex",gap:4}}>
-                <button onClick={()=>setJournalDate($d($a($p(journalDate),-1)))}
-                  style={{padding:"4px 10px",borderRadius:5,border:`1px solid ${T.bd}`,background:"transparent",
-                    color:T.t2,cursor:"pointer",fontFamily:MO,fontSize:"0.52rem"}}>‹ Prev</button>
-                <button onClick={()=>setJournalDate(todayStr)} disabled={journalDate===todayStr}
-                  style={{padding:"4px 10px",borderRadius:5,border:`1px solid ${T.bd}`,background:"transparent",
-                    color:journalDate===todayStr?T.t3:T.t2,cursor:journalDate===todayStr?"default":"pointer",
-                    fontFamily:MO,fontSize:"0.52rem"}}>Today</button>
-                <button onClick={()=>setJournalDate($d($a($p(journalDate),1)))} disabled={journalDate>=todayStr}
-                  style={{padding:"4px 10px",borderRadius:5,border:`1px solid ${T.bd}`,background:"transparent",
-                    color:journalDate>=todayStr?T.t3:T.t2,cursor:journalDate>=todayStr?"default":"pointer",
-                    fontFamily:MO,fontSize:"0.52rem"}}>Next ›</button>
-              </div>
-              <div style={{fontFamily:MO,fontSize:"0.47rem",color:T.t3,marginLeft:"auto"}}>
-                {(journalEntries||[]).find(e=>e.date===journalDate)?"✎ Editing existing entry":"+ New entry"}
-              </div>
-            </div>
-            <textarea value={journalText} onChange={e=>setJournalText(e.target.value)}
-              placeholder={"What's on your mind today? Reflect, plan, or just ramble…"}
-              style={{...IS3,minHeight:isMobile?200:340,marginBottom:14}}/>
-            <div style={{display:"flex",gap:8,justifyContent:"flex-end",alignItems:"center"}}>
-              {(journalEntries||[]).find(e=>e.date===journalDate)&&<button
-                onClick={()=>deleteJournalEntry(journalDate)}
-                style={{padding:"7px 16px",borderRadius:6,border:`1px solid rgba(239,68,68,0.35)`,background:"transparent",
-                  color:"#ef4444",cursor:"pointer",fontFamily:MO,fontSize:"0.54rem"}}>Delete Entry</button>}
-              <button onClick={saveJournalEntry}
-                style={{padding:"7px 24px",borderRadius:6,border:"none",
-                  background:T.ac,color:T.bg,cursor:"pointer",fontFamily:MO,fontSize:"0.6rem",fontWeight:600}}>
-                Save Entry
-              </button>
+                style={{padding:"4px 9px",borderRadius:5,border:`1px solid ${T.bd}`,background:T.ib,color:T.tx,fontSize:"0.8rem",fontFamily:MO,outline:"none"}}/>
+              <button onClick={()=>setJournalDate($d($a($p(journalDate),-1)))} style={BtnSm}>‹ Prev</button>
+              <button onClick={()=>setJournalDate(todayStr)} disabled={journalDate===todayStr}
+                style={{...BtnSm,color:journalDate===todayStr?T.t3:T.t2,cursor:journalDate===todayStr?"default":"pointer"}}>Today</button>
+              <button onClick={()=>setJournalDate($d($a($p(journalDate),1)))} disabled={journalDate>=todayStr}
+                style={{...BtnSm,color:journalDate>=todayStr?T.t3:T.t2,cursor:journalDate>=todayStr?"default":"pointer"}}>Next ›</button>
+              <span style={{fontFamily:MO,fontSize:"0.46rem",color:T.t3,marginLeft:"auto"}}>
+                {currentEntry?"✎ editing":"+ new entry"}
+              </span>
+            </div>}
+
+            {journalMode==="weekly"&&<div style={{display:"flex",alignItems:"center",gap:7,marginBottom:14,flexWrap:"wrap"}}>
+              <span style={{fontFamily:MO,fontSize:"0.52rem",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.08em",color:T.t2}}>Week</span>
+              <span style={{fontFamily:MO,fontSize:"0.56rem",color:T.tx,padding:"3px 8px",borderRadius:5,border:`1px solid ${T.bd}`,background:T.ib}}>
+                {weekLabel(weekStart)}
+              </span>
+              <button onClick={()=>setWeekStart(getMonday($d($a($p(weekStart),-7))))} style={BtnSm}>‹ Prev</button>
+              <button onClick={()=>setWeekStart(getMonday(todayStr))} disabled={weekStart===getMonday(todayStr)}
+                style={{...BtnSm,color:weekStart===getMonday(todayStr)?T.t3:T.t2,cursor:weekStart===getMonday(todayStr)?"default":"pointer"}}>This week</button>
+              <button onClick={()=>setWeekStart(getMonday($d($a($p(weekStart),7))))} disabled={weekStart>=getMonday(todayStr)}
+                style={{...BtnSm,color:weekStart>=getMonday(todayStr)?T.t3:T.t2,cursor:weekStart>=getMonday(todayStr)?"default":"pointer"}}>Next ›</button>
+              <span style={{fontFamily:MO,fontSize:"0.46rem",color:T.t3,marginLeft:"auto"}}>
+                {currentEntry?"✎ editing":"+ new entry"}
+              </span>
+            </div>}
+
+            {/* Rich text editor — keyed so it remounts on date/mode change */}
+            <RichTextEditor key={entryKey+entryType} initialValue={initialContent}
+              onChange={onEditorChange} T={T} MO={MO}
+              placeholder={journalMode==="weekly"
+                ?"How did this week go? Reflect, plan, note wins and challenges…"
+                :"What's on your mind today? Reflect, plan, or just ramble…"}
+              minHeight={isMobile?200:320}/>
+
+            {/* Save / Delete row */}
+            <div style={{display:"flex",gap:8,justifyContent:"flex-end",alignItems:"center",marginTop:12}}>
+              {currentEntry&&<button onClick={()=>deleteEntry(entryKey,entryType)}
+                style={{padding:"6px 14px",borderRadius:6,border:"1px solid rgba(239,68,68,0.35)",
+                  background:"transparent",color:"#ef4444",cursor:"pointer",fontFamily:MO,fontSize:"0.52rem"}}>Delete Entry</button>}
+              <span style={{fontFamily:MO,fontSize:"0.43rem",color:T.t3,marginRight:4}}>Auto-saves · </span>
+              <button onClick={saveEntry}
+                style={{padding:"6px 22px",borderRadius:6,border:"none",background:T.ac,
+                  color:T.bg,cursor:"pointer",fontFamily:MO,fontSize:"0.58rem",fontWeight:600}}>Save Entry</button>
             </div>
           </div>}
 
+          {/* ── BROWSE TAB ── */}
           {journalTab==="browse"&&<div>
-            {sortedEntries.length===0&&<div style={{textAlign:"center",padding:"64px 0",fontFamily:MO,
-              fontSize:"0.64rem",color:T.t3,letterSpacing:"0.06em"}}>
-              No journal entries yet. Switch to Write to add your first entry.
+            {/* Filter */}
+            <div style={{display:"flex",gap:5,marginBottom:12,alignItems:"center"}}>
+              <span style={{fontFamily:MO,fontSize:"0.48rem",color:T.t3,marginRight:4}}>Show:</span>
+              {[["all","All"],["daily","Daily"],["weekly","Weekly"]].map(([k,l])=>
+                <button key={k} onClick={()=>setBrowseFilter(k)}
+                  style={{padding:"3px 10px",borderRadius:12,border:`1px solid ${browseFilter===k?T.ac:T.bd}`,
+                    background:browseFilter===k?`${T.ac}18`:"transparent",
+                    color:browseFilter===k?T.ac:T.t3,cursor:"pointer",fontFamily:MO,fontSize:"0.48rem"}}>{l}</button>)}
+            </div>
+            {filteredEntries.length===0&&<div style={{textAlign:"center",padding:"56px 0",fontFamily:MO,fontSize:"0.62rem",color:T.t3,letterSpacing:"0.06em"}}>
+              No entries yet. Switch to Write to add your first entry.
             </div>}
-            <div style={{display:"flex",flexDirection:"column",gap:10}}>
-              {sortedEntries.map(entry=>{
+            <div style={{display:"flex",flexDirection:"column",gap:9}}>
+              {filteredEntries.map(entry=>{
                 const isSel=browseSel===entry.id;
-                const entryDate=$p(entry.date);
-                const dateLabel=entryDate.toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric",year:"numeric"});
+                const isWeekly=entry.type==="weekly";
+                const rawLabel=isWeekly?weekLabel(entry.date):$p(entry.date).toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric",year:"numeric"});
+                const isToday=entry.date===todayStr;
+                // Strip HTML for preview
+                const previewText=(entry.content||entry.text||"").replace(/<[^>]+>/g," ").replace(/\s+/g," ").trim();
                 return <div key={entry.id}
                   style={{background:T.b3,border:`1px solid ${isSel?T.ac:T.bd}`,borderRadius:10,
                     overflow:"hidden",transition:"border-color 0.15s"}}>
                   <div onClick={()=>setBrowseSel(isSel?null:entry.id)}
                     style={{display:"flex",alignItems:"center",justifyContent:"space-between",
-                      padding:"13px 16px",background:isSel?`${T.ac}10`:T.b2,cursor:"pointer"}}>
+                      padding:"12px 15px",background:isSel?`${T.ac}10`:T.b2,cursor:"pointer"}}>
                     <div style={{flex:1,minWidth:0}}>
-                      <div style={{fontFamily:MO,fontSize:"0.6rem",fontWeight:600,
-                        color:isSel?T.ac:T.tx,letterSpacing:"0.04em",marginBottom:isSel?0:4}}>
-                        {dateLabel}
-                        {entry.date===todayStr&&<span style={{marginLeft:7,fontFamily:MO,fontSize:"0.48rem",
-                          padding:"1px 6px",borderRadius:8,background:`${T.ac}20`,color:T.ac}}>today</span>}
+                      <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:isSel?0:3}}>
+                        <span style={{fontFamily:MO,fontSize:"0.6rem",fontWeight:600,color:isSel?T.ac:T.tx,letterSpacing:"0.03em"}}>{rawLabel}</span>
+                        {isWeekly&&<span style={{fontFamily:MO,fontSize:"0.42rem",padding:"1px 5px",borderRadius:7,background:`${T.ac}20`,color:T.ac}}>weekly</span>}
+                        {isToday&&<span style={{fontFamily:MO,fontSize:"0.42rem",padding:"1px 5px",borderRadius:7,background:`${T.ac}18`,color:T.ac}}>today</span>}
                       </div>
-                      {!isSel&&<div style={{fontFamily:"'DM Sans',sans-serif",fontSize:"0.82rem",color:T.t3,
-                        overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:"92%"}}>
-                        {entry.text.slice(0,160)}{entry.text.length>160?"…":""}
+                      {!isSel&&<div style={{fontFamily:"'DM Sans',sans-serif",fontSize:"0.8rem",color:T.t3,
+                        overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:"90%"}}>
+                        {previewText.slice(0,150)}{previewText.length>150?"…":""}
                       </div>}
                     </div>
-                    <div style={{display:"flex",alignItems:"center",gap:7,flexShrink:0,marginLeft:12}}>
-                      <button onClick={e=>{e.stopPropagation();setJournalDate(entry.date);setJournalTab("write");}}
-                        style={{padding:"4px 11px",borderRadius:5,border:`1px solid ${T.bd}`,background:"transparent",
-                          color:T.t2,cursor:"pointer",fontFamily:MO,fontSize:"0.5rem"}}>Edit</button>
-                      <span style={{color:T.t3,fontSize:"0.85rem",userSelect:"none"}}>{isSel?"▴":"▾"}</span>
+                    <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0,marginLeft:10}}>
+                      <button onClick={e=>{e.stopPropagation();
+                        if(isWeekly){setJournalMode("weekly");setWeekStart(entry.date);}
+                        else{setJournalMode("daily");setJournalDate(entry.date);}
+                        setJournalTab("write");}}
+                        style={{padding:"3px 10px",borderRadius:5,border:`1px solid ${T.bd}`,background:"transparent",
+                          color:T.t2,cursor:"pointer",fontFamily:MO,fontSize:"0.48rem"}}>Edit</button>
+                      <span style={{color:T.t3,fontSize:"0.82rem",userSelect:"none"}}>{isSel?"▴":"▾"}</span>
                     </div>
                   </div>
                   {isSel&&<div style={{padding:"16px 18px",borderTop:`1px solid ${T.bd}`}}>
-                    <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:"0.9rem",color:T.tx,
-                      lineHeight:1.8,whiteSpace:"pre-wrap"}}>{entry.text}</div>
-                    <div style={{marginTop:14,display:"flex",justifyContent:"flex-end"}}>
-                      <button onClick={()=>deleteJournalEntry(entry.date)}
-                        style={{padding:"5px 14px",borderRadius:5,border:`1px solid rgba(239,68,68,0.35)`,
-                          background:"transparent",color:"#ef4444",cursor:"pointer",
-                          fontFamily:MO,fontSize:"0.5rem"}}>Delete</button>
+                    {entry.content
+                      ?<div className="rte-wrap" style={{fontSize:"0.9rem",color:T.tx,lineHeight:1.8,fontFamily:"'DM Sans',sans-serif"}}
+                          dangerouslySetInnerHTML={{__html:entry.content}}/>
+                      :<div style={{fontFamily:"'DM Sans',sans-serif",fontSize:"0.9rem",color:T.tx,lineHeight:1.8,whiteSpace:"pre-wrap"}}>{entry.text}</div>}
+                    <div style={{marginTop:12,display:"flex",justifyContent:"flex-end"}}>
+                      <button onClick={()=>deleteEntry(entry.date,entry.type||"daily")}
+                        style={{padding:"4px 13px",borderRadius:5,border:"1px solid rgba(239,68,68,0.35)",
+                          background:"transparent",color:"#ef4444",cursor:"pointer",fontFamily:MO,fontSize:"0.48rem"}}>Delete</button>
                     </div>
                   </div>}
                 </div>;
