@@ -3284,7 +3284,8 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
       emit();return;
     }
     // Build checkbox div preserving existing line content
-    const inner=(nd&&nd!==editorRef.current)?(nd.innerHTML||''):'';
+    // Don't copy a bare <br> from an empty paragraph — treat it as empty
+    const inner=(nd&&nd!==editorRef.current&&nd.textContent.trim())?(nd.innerHTML||''):'';
     const cbDiv=document.createElement('div');
     cbDiv.dataset.cb='1';
     cbDiv.style.cssText='display:flex;align-items:flex-start;gap:6px;margin:3px 0;line-height:1.7';
@@ -3427,7 +3428,11 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
                 nd.parentNode.insertBefore(newDiv,nd.nextSibling);
                 editorRef.current.focus();
                 const r=document.createRange();
-                if(!newSpan.firstChild){const tn=document.createTextNode('');newSpan.appendChild(tn);}
+                // Ensure a real text node for cursor — a bare <br> causes isEmpty on next Enter
+                if(!newSpan.firstChild||(newSpan.childNodes.length===1&&newSpan.firstChild.nodeName==='BR')){
+                  while(newSpan.firstChild)newSpan.removeChild(newSpan.firstChild);
+                  const tn=document.createTextNode('');newSpan.appendChild(tn);
+                }
                 r.setStart(newSpan.firstChild,0);r.collapse(true);
                 sel.removeAllRanges();sel.addRange(r);
               }
@@ -3439,7 +3444,14 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
               nd.parentNode.removeChild(nd);
               editorRef.current.focus();
               if(prev){
-                const r=document.createRange();r.selectNodeContents(prev);r.collapse(false);
+                const r=document.createRange();
+                // If prev is also a checkbox row, put cursor at end of its span (not the outer div)
+                let focusEl=prev;
+                if(prev.dataset&&prev.dataset.cb){
+                  const sp2=prev.children&&prev.children.length>1?prev.children[1]:prev.querySelector('span');
+                  if(sp2)focusEl=sp2;
+                }
+                r.selectNodeContents(focusEl);r.collapse(false);
                 sel.removeAllRanges();sel.addRange(r);
               }
               emit();return;
@@ -6429,12 +6441,23 @@ function NotesDashboard({T,MO,SE,quickNotes,setQuickNotes,journalEntries,setJour
   const activeDocTabId=docTabState.active;
   const[editingTabId,setEditingTabId]=useState(null);
   const[editTabTitle,setEditTabTitle]=useState("");
+  const[syncGen,setSyncGen]=useState(0);
+  const lastSavedRef=useRef(quickNotes);
   const persistDocTabs=(tabs,active)=>{
     const s=JSON.stringify({tabs,active});
+    lastSavedRef.current=s;
     setQuickNotes(s);setNotesSaved(false);
     if(saveTimerRef.current)clearTimeout(saveTimerRef.current);
     saveTimerRef.current=setTimeout(()=>setNotesSaved(true),800);
   };
+  // Sync local state when quickNotes is updated externally (e.g. cloud/Firestore sync)
+  useEffect(()=>{
+    if(quickNotes&&quickNotes!==lastSavedRef.current){
+      setDocTabState(parseNoteTabs(quickNotes));
+      lastSavedRef.current=quickNotes;
+      setSyncGen(g=>g+1);
+    }
+  },[quickNotes]);
   const addDocTab=()=>{
     const id=Date.now().toString();
     const newTab={id,title:`Untitled ${docTabs.length+1}`,html:""};
@@ -6452,6 +6475,7 @@ function NotesDashboard({T,MO,SE,quickNotes,setQuickNotes,journalEntries,setJour
   };
   const switchDocTab=(id)=>{
     setDocTabState(p=>({...p,active:id}));
+    persistDocTabs(docTabs,id);
   };
   const commitTabRename=()=>{
     if(!editingTabId)return;
@@ -6590,7 +6614,7 @@ function NotesDashboard({T,MO,SE,quickNotes,setQuickNotes,journalEntries,setJour
             borderRadius:"6px 6px 0 0",marginBottom:0}}>+</button>
       </div>
       {/* ── Active tab editor ── */}
-      <RichTextEditor key={activeDocTabId} initialValue={activeDocTab?.html||""}
+      <RichTextEditor key={activeDocTabId+"-"+syncGen} initialValue={activeDocTab?.html||""}
         onChange={handleNotesChange} T={T} MO={MO}
         placeholder="Start writing…"
         minHeight={isMobile?300:500}/>
