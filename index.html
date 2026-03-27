@@ -871,8 +871,10 @@ function App(){
       const ds=$d(day);
       const ovr=sleepDayData[ds]||{};
       if(ovr.skip)continue;
-      const bt=ovr.bedtime||sleepSettings.bedtime||"22:00";
-      const wt=ovr.wakeTime||sleepSettings.wakeTime||"07:00";
+      const dow=new Date(ds+"T12:00").getDay();
+      const wkSc=sleepSettings.weekSchedule?.[dow];
+      const bt=ovr.bedtime||wkSc?.bedtime||sleepSettings.bedtime||"22:00";
+      const wt=ovr.wakeTime||wkSc?.wakeTime||sleepSettings.wakeTime||"07:00";
       const[bH,bM]=bt.split(":").map(Number);
       const[wH,wM]=wt.split(":").map(Number);
       if(isNaN(bH)||isNaN(wH))continue;
@@ -3268,22 +3270,32 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
 
 function SleepModal({T,MO,SE,modal,setModal,sleepSettings,setSleepSettings,sleepDayData,setSleepDayData}){
   const date=modal.sleepDate;
-  const dayData=useMemo(()=>sleepDayData[date]||{},[date,sleepDayData]);
+  const dayData=useMemo(()=>date?sleepDayData[date]||{}:{},[date,sleepDayData]);
   const calcMins=(wt,bt)=>{if(!wt||!bt)return null;const[wH,wM]=wt.split(":").map(Number);const[bH,bM]=bt.split(":").map(Number);let w=wH*60+wM,b=bH*60+bM;if(w<=b)w+=1440;return w-b;};
   const fmtMins=(m)=>m?`${Math.floor(m/60)}h ${m%60}m`:"—";
 
-  const[gEn,setGEn]=useState(sleepSettings.enabled);
-  const[gBed,setGBed]=useState(sleepSettings.bedtime||"22:00");
-  const[gWake,setGWake]=useState(sleepSettings.wakeTime||"07:00");
-  const[dBed,setDBed]=useState(dayData.bedtime||sleepSettings.bedtime||"22:00");
-  const[dWake,setDWake]=useState(dayData.wakeTime||sleepSettings.wakeTime||"07:00");
+  const DAYS=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+  const DAYS_FULL=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+
+  const initWeekSchedule=()=>{
+    const base={bedtime:sleepSettings.bedtime||"22:00",wakeTime:sleepSettings.wakeTime||"07:00"};
+    const ws=sleepSettings.weekSchedule||{};
+    return Object.fromEntries(Array.from({length:7},(_,i)=>[i,{bedtime:ws[i]?.bedtime||base.bedtime,wakeTime:ws[i]?.wakeTime||base.wakeTime}]));
+  };
+
+  const[gEn,setGEn]=useState(sleepSettings.enabled||false);
+  const[weekSched,setWeekSched]=useState(initWeekSchedule);
+  const updateDay=(dow,field,val)=>setWeekSched(p=>({...p,[dow]:{...p[dow],[field]:val}}));
+
+  const dowOfDate=date?new Date(date+"T12:00").getDay():null;
+  const schedForDate=dowOfDate!=null?weekSched[dowOfDate]:null;
+  const[dBed,setDBed]=useState(dayData.bedtime||schedForDate?.bedtime||sleepSettings.bedtime||"22:00");
+  const[dWake,setDWake]=useState(dayData.wakeTime||schedForDate?.wakeTime||sleepSettings.wakeTime||"07:00");
   const[override,setOverride]=useState(!!(dayData.bedtime||dayData.wakeTime));
   const[skip,setSkip]=useState(!!dayData.skip);
   const[actH,setActH]=useState(dayData.actualHours!=null?String(dayData.actualHours):"");
   const[actM,setActM]=useState(dayData.actualMins!=null?String(dayData.actualMins):"");
 
-  const intendedGlobal=calcMins(gWake,gBed);
-  const intendedDay=calcMins(override?dWake:gWake,override?dBed:gBed);
   const IS2={background:T.ib,border:`1px solid ${T.ibd||T.bd}`,borderRadius:5,padding:"5px 9px",
     color:T.tx,fontFamily:"'DM Sans',sans-serif",fontSize:"0.88rem",outline:"none"};
   const LB={fontFamily:MO,fontSize:"0.44rem",color:T.t3,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:5,display:"block"};
@@ -3297,9 +3309,10 @@ function SleepModal({T,MO,SE,modal,setModal,sleepSettings,setSleepSettings,sleep
   </div>;
 
   const dateLabel=date?$p(date).toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"}):null;
+  const intendedDay=calcMins(override?dWake:(schedForDate?.wakeTime||"07:00"),override?dBed:(schedForDate?.bedtime||"22:00"));
 
   const save=()=>{
-    setSleepSettings({enabled:gEn,bedtime:gBed,wakeTime:gWake});
+    setSleepSettings({enabled:gEn,bedtime:weekSched[1]?.bedtime||"22:00",wakeTime:weekSched[1]?.wakeTime||"07:00",weekSchedule:weekSched});
     if(date){
       if(override||skip||actH||actM){
         setSleepDayData(p=>({...p,[date]:{...p[date],
@@ -3320,8 +3333,10 @@ function SleepModal({T,MO,SE,modal,setModal,sleepSettings,setSleepSettings,sleep
       alignItems:"center",justifyContent:"center",padding:16}}>
     <div onClick={e=>e.stopPropagation()}
       style={{background:T.b3,border:`1px solid ${T.bd}`,borderRadius:14,
-        padding:"22px 26px",maxWidth:440,width:"100%",
+        padding:"22px 26px",maxWidth:500,width:"100%",
         boxShadow:"0 8px 32px rgba(0,0,0,0.28)",maxHeight:"90vh",overflowY:"auto"}}>
+
+      {/* Header */}
       <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:18}}>
         <div>
           <div style={{fontFamily:SE,fontSize:"1.3rem",color:T.tx,marginBottom:2}}>Sleep Settings</div>
@@ -3330,37 +3345,62 @@ function SleepModal({T,MO,SE,modal,setModal,sleepSettings,setSleepSettings,sleep
         <button onClick={()=>setModal(null)} style={{background:"none",border:"none",color:T.t3,cursor:"pointer",fontSize:"1.1rem"}}>✕</button>
       </div>
 
-      {/* Global toggle */}
-      <div style={{padding:"10px 12px",borderRadius:8,background:T.b2,border:`1px solid ${T.bd}`,marginBottom:14}}>
+      {/* Enable toggle */}
+      <div style={{padding:"10px 12px",borderRadius:8,background:T.b2,border:`1px solid ${T.bd}`,marginBottom:16}}>
         <Toggle val={gEn} set={setGEn} label="Show sleep blocks on calendar" sub="Bedtime & wake-up appear as calendar indicators"/>
       </div>
 
       {gEn&&<>
-        {/* Default schedule */}
-        <div style={{marginBottom:16}}>
-          <span style={LB}>Default recurring schedule</span>
-          <div style={{display:"flex",gap:12}}>
-            <div style={{flex:1}}>
-              <span style={{...LB,marginBottom:3}}>🌙 Bedtime</span>
-              <input type="time" value={gBed} onChange={e=>setGBed(e.target.value)} style={{...IS2,width:"100%"}}/>
-            </div>
-            <div style={{flex:1}}>
-              <span style={{...LB,marginBottom:3}}>☀ Wake up</span>
-              <input type="time" value={gWake} onChange={e=>setGWake(e.target.value)} style={{...IS2,width:"100%"}}/>
+        {/* Weekly schedule grid */}
+        <div style={{marginBottom:14}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+            <span style={LB}>Weekly recurring schedule</span>
+            <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+              {[["College",{1:{bedtime:"22:30",wakeTime:"07:00"},2:{bedtime:"22:30",wakeTime:"07:00"},3:{bedtime:"22:30",wakeTime:"07:00"},4:{bedtime:"22:30",wakeTime:"07:00"},5:{bedtime:"23:30",wakeTime:"09:00"},6:{bedtime:"01:00",wakeTime:"10:00"},0:{bedtime:"23:00",wakeTime:"08:30"}}],
+                ["9–5",{1:{bedtime:"22:30",wakeTime:"06:30"},2:{bedtime:"22:30",wakeTime:"06:30"},3:{bedtime:"22:30",wakeTime:"06:30"},4:{bedtime:"22:30",wakeTime:"06:30"},5:{bedtime:"22:30",wakeTime:"06:30"},6:{bedtime:"23:30",wakeTime:"08:00"},0:{bedtime:"23:30",wakeTime:"08:00"}}],
+              ].map(([label,map])=>
+                <button key={label} onClick={()=>setWeekSched(p=>Object.fromEntries(Object.entries(p).map(([k,v])=>[k,map[k]||v])))}
+                  style={{padding:"2px 8px",borderRadius:4,border:`1px solid ${T.bd}`,background:"transparent",
+                    color:T.t2,cursor:"pointer",fontFamily:MO,fontSize:"0.42rem"}}>{label}</button>
+              )}
             </div>
           </div>
-          {intendedGlobal&&<div style={{fontFamily:MO,fontSize:"0.46rem",color:T.t2,marginTop:5}}>
-            → {fmtMins(intendedGlobal)} planned sleep per night
-          </div>}
+          {/* Grid header */}
+          <div style={{display:"grid",gridTemplateColumns:"2.6rem 1fr 1fr 3.2rem",gap:"4px 8px",alignItems:"center"}}>
+            <div/>
+            <div style={{fontFamily:MO,fontSize:"0.39rem",color:T.t3,textTransform:"uppercase",letterSpacing:"0.06em",paddingLeft:2}}>🌙 Bedtime</div>
+            <div style={{fontFamily:MO,fontSize:"0.39rem",color:T.t3,textTransform:"uppercase",letterSpacing:"0.06em",paddingLeft:2}}>☀ Wake up</div>
+            <div style={{fontFamily:MO,fontSize:"0.39rem",color:T.t3,textTransform:"uppercase",letterSpacing:"0.06em"}}>Sleep</div>
+            {[1,2,3,4,5,6,0].map(dow=>{
+              const s=weekSched[dow]||{bedtime:"22:00",wakeTime:"07:00"};
+              const mins=calcMins(s.wakeTime,s.bedtime);
+              const isWeekend=dow===0||dow===6;
+              const isToday=dowOfDate===dow;
+              return <React.Fragment key={dow}>
+                <div style={{fontFamily:MO,fontSize:"0.5rem",
+                  color:isToday?T.ac:isWeekend?T.t2:T.t3,
+                  fontWeight:isToday||isWeekend?600:"normal",
+                  display:"flex",alignItems:"center",gap:3}}>
+                  {DAYS[dow]}{isToday&&<span style={{fontSize:"0.35rem",color:T.ac}}>●</span>}
+                </div>
+                <input type="time" value={s.bedtime} onChange={e=>updateDay(dow,"bedtime",e.target.value)}
+                  style={{...IS2,width:"100%",fontSize:"0.82rem",padding:"4px 7px"}}/>
+                <input type="time" value={s.wakeTime} onChange={e=>updateDay(dow,"wakeTime",e.target.value)}
+                  style={{...IS2,width:"100%",fontSize:"0.82rem",padding:"4px 7px"}}/>
+                <div style={{fontFamily:MO,fontSize:"0.42rem",color:T.t3,whiteSpace:"nowrap"}}>{fmtMins(mins)}</div>
+              </React.Fragment>;
+            })}
+          </div>
         </div>
 
-        {/* Day override */}
+        {/* Day-specific override */}
         {date&&<div style={{borderTop:`1px solid ${T.bd}`,paddingTop:14}}>
           <span style={LB}>Override for {dateLabel}</span>
           <Toggle val={skip} set={setSkip} label="Skip sleep tracking for this day"/>
           {!skip&&<>
-            <Toggle val={override} set={setOverride} label="Different times for this day only"/>
-            {override&&<div style={{display:"flex",gap:12,marginBottom:12}}>
+            <Toggle val={override} set={setOverride} label="Different times for this day only"
+              sub={schedForDate&&!override?`Using ${DAYS_FULL[dowOfDate]} schedule: ${schedForDate.bedtime} → ${schedForDate.wakeTime}`:undefined}/>
+            {override&&<div style={{display:"flex",gap:12,marginBottom:8}}>
               <div style={{flex:1}}>
                 <span style={{...LB,marginBottom:3}}>🌙 Bedtime</span>
                 <input type="time" value={dBed} onChange={e=>setDBed(e.target.value)} style={{...IS2,width:"100%"}}/>
@@ -3370,18 +3410,18 @@ function SleepModal({T,MO,SE,modal,setModal,sleepSettings,setSleepSettings,sleep
                 <input type="time" value={dWake} onChange={e=>setDWake(e.target.value)} style={{...IS2,width:"100%"}}/>
               </div>
             </div>}
-            {intendedDay&&override&&<div style={{fontFamily:MO,fontSize:"0.46rem",color:T.t2,marginBottom:12}}>
+            {intendedDay&&override&&<div style={{fontFamily:MO,fontSize:"0.46rem",color:T.t2,marginBottom:10}}>
               → {fmtMins(intendedDay)} planned this night
             </div>}
-            <span style={LB}>Log actual sleep for this night</span>
-            <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:4}}>
+            <span style={LB}>Log actual sleep</span>
+            <div style={{display:"flex",gap:8,alignItems:"center"}}>
               <input type="number" value={actH} onChange={e=>setActH(e.target.value)} min={0} max={24}
                 placeholder="0" style={{...IS2,width:58}}/>
               <span style={{fontFamily:MO,fontSize:"0.5rem",color:T.t3}}>h</span>
               <input type="number" value={actM} onChange={e=>setActM(e.target.value)} min={0} max={59}
                 placeholder="0" style={{...IS2,width:58}}/>
               <span style={{fontFamily:MO,fontSize:"0.5rem",color:T.t3}}>min</span>
-              {intendedDay&&<span style={{fontFamily:MO,fontSize:"0.43rem",color:T.t3,marginLeft:4}}>planned: {fmtMins(intendedDay)}</span>}
+              {intendedDay&&<span style={{fontFamily:MO,fontSize:"0.43rem",color:T.t3,marginLeft:2}}>planned: {fmtMins(intendedDay)}</span>}
             </div>
           </>}
         </div>}
@@ -3410,8 +3450,10 @@ function SleepSection({T,MO,SE,sleepSettings,setSleepSettings,sleepDayData,setSl
   const days=Array.from({length:7},(_,i)=>{const d=new Date();d.setDate(d.getDate()-6+i);return $d(d);});
   const dayStats=days.map(ds=>{
     const ovr=sleepDayData[ds]||{};
-    const bt=ovr.bedtime||sleepSettings.bedtime||"22:00";
-    const wt=ovr.wakeTime||sleepSettings.wakeTime||"07:00";
+    const dow=new Date(ds+"T12:00").getDay();
+    const wkSc=sleepSettings.weekSchedule?.[dow];
+    const bt=ovr.bedtime||wkSc?.bedtime||sleepSettings.bedtime||"22:00";
+    const wt=ovr.wakeTime||wkSc?.wakeTime||sleepSettings.wakeTime||"07:00";
     const intended=calcMins(wt,bt);
     const actual=ovr.actualHours!=null?(+ovr.actualHours*60+(+ovr.actualMins||0)):null;
     return{ds,intended,actual,skip:!!ovr.skip};
@@ -3429,7 +3471,7 @@ function SleepSection({T,MO,SE,sleepSettings,setSleepSettings,sleepDayData,setSl
   return <div style={{background:T.b3,border:`1px solid ${T.bd}`,borderRadius:10,padding:"16px 20px",marginBottom:20}}>
     <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:12,flexWrap:"wrap",gap:8}}>
       <div style={{fontFamily:MO,fontSize:"0.5rem",color:T.t3,textTransform:"uppercase",letterSpacing:"0.08em"}}>Sleep Tracker</div>
-      <button onClick={()=>setModal&&setModal({type:"_sleep",sleepDate:todayStr})} style={{padding:"4px 10px",borderRadius:5,border:`1px solid ${T.bd}`,background:"transparent",color:T.t3,cursor:"pointer",fontFamily:MO,fontSize:"0.46rem",letterSpacing:"0.05em"}}>⚙ Settings</button>
+      <button onClick={()=>setModal&&setModal({type:"_sleep",sleepDate:null})} style={{padding:"4px 10px",borderRadius:5,border:`1px solid ${T.bd}`,background:"transparent",color:T.t3,cursor:"pointer",fontFamily:MO,fontSize:"0.46rem",letterSpacing:"0.05em"}}>⚙ Settings</button>
       {sleepSettings.enabled&&<div style={{display:"flex",gap:18,flexWrap:"wrap"}}>
         <div><div style={{fontFamily:SE,fontSize:"1.15rem",color:T.ac,lineHeight:1}}>{fmtMins(avgIntended)}</div>
           <div style={{fontFamily:MO,fontSize:"0.43rem",color:T.t3,marginTop:1}}>avg planned/night</div></div>
@@ -3494,8 +3536,10 @@ function DayCountdownSection({T,MO,SE,sleepSettings,sleepDayData}){
 
   const todayStr=$d(new Date());
   const ovr=sleepDayData[todayStr]||{};
-  const wt=(ovr.wakeTime||sleepSettings?.wakeTime||"07:00");
-  const bt=(ovr.bedtime||sleepSettings?.bedtime||"22:00");
+  const dow=new Date(todayStr+"T12:00").getDay();
+  const wkSc=sleepSettings?.weekSchedule?.[dow];
+  const wt=(ovr.wakeTime||wkSc?.wakeTime||sleepSettings?.wakeTime||"07:00");
+  const bt=(ovr.bedtime||wkSc?.bedtime||sleepSettings?.bedtime||"22:00");
   const[wH,wM]=wt.split(":").map(Number);
   const[bH,bM]=bt.split(":").map(Number);
 
@@ -3522,80 +3566,87 @@ function DayCountdownSection({T,MO,SE,sleepSettings,sleepDayData}){
   const notStarted=nowAdj<dayStartMins;
   const urgColor=pctLeft<10?"#ef4444":pctLeft<25?"#f97316":pctLeft<50?"#eab308":T.ac;
 
-  // SVG clock
-  const R=38,CX=50,CY=50;
-  const circ=2*Math.PI*R;
-  const pct=pctElapsed/100;
-  const tipAngle=-Math.PI/2+pct*2*Math.PI;
-  const tipX=CX+R*Math.cos(tipAngle);
-  const tipY=CY+R*Math.sin(tipAngle);
+  // 24h calendar clock (midnight → midnight)
+  const pct24=nowMins/1440*100;
+  const rem24Secs=Math.max(0,(1440-(now.getHours()*60+now.getMinutes()))*60-now.getSeconds());
+  const h24=Math.floor(rem24Secs/3600);
+  const m24=Math.floor((rem24Secs%3600)/60);
+  const s24=rem24Secs%60;
+  const dayColor="#7c6af7";
+
+  const R=38,CX=50,CY=50,circ=2*Math.PI*R;
+  const mkTip=(p)=>{const a=-Math.PI/2+(p/100)*2*Math.PI;return[CX+R*Math.cos(a),CY+R*Math.sin(a)];};
+  const[tipX,tipY]=mkTip(pctElapsed);
+  const[tipX24,tipY24]=mkTip(pct24);
+
+  const ClockFace=({pctE,color,label,sub,tX,tY,noArc})=><div style={{display:"flex",flexDirection:"column",alignItems:"center",minWidth:108}}>
+    <svg width={108} height={108} viewBox="0 0 100 100">
+      {Array.from({length:12},(_,i)=>{const a=(i/12)*2*Math.PI-Math.PI/2;const r1=R-7,r2=R-1;
+        return <line key={i} x1={CX+r1*Math.cos(a)} y1={CY+r1*Math.sin(a)}
+          x2={CX+r2*Math.cos(a)} y2={CY+r2*Math.sin(a)} stroke={T.bd} strokeWidth={1.5}/>;
+      })}
+      <circle cx={CX} cy={CY} r={R} fill="none" stroke={T.b2} strokeWidth={7}/>
+      {!noArc&&<circle cx={CX} cy={CY} r={R} fill="none" stroke={color} strokeWidth={7}
+        strokeDasharray={circ} strokeDashoffset={circ*(1-pctE/100)}
+        strokeLinecap="round" transform={`rotate(-90 ${CX} ${CY})`}
+        style={{transition:"stroke-dashoffset 1s linear,stroke 0.5s"}}/>}
+      {!noArc&&pctE>0&&pctE<100&&<circle cx={tX} cy={tY} r={5} fill={color}
+        style={{animation:"sleepPulse 1.2s ease-in-out infinite"}}/>}
+      <text x={CX} y={CY-4} textAnchor="middle"
+        style={{fontFamily:"'DM Mono',monospace",fontSize:"0.58rem",fontWeight:700,fill:noArc?T.t3:color}}>
+        {noArc?"—":(100-pctE).toFixed(0)+"%"}
+      </text>
+      <text x={CX} y={CY+9} textAnchor="middle"
+        style={{fontFamily:"'DM Mono',monospace",fontSize:"0.42rem",fill:T.t3}}>{label}</text>
+    </svg>
+    <div style={{fontFamily:MO,fontSize:"0.38rem",color:T.t3,marginTop:3,textAlign:"center"}}>{sub}</div>
+  </div>;
 
   return <div style={{background:T.b3,border:`1px solid ${T.bd}`,borderRadius:10,padding:"18px 22px",marginBottom:20}}>
     <div style={{fontFamily:MO,fontSize:"0.5rem",color:T.t3,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:14}}>
       Day Countdown
     </div>
-    <div style={{display:"flex",alignItems:"center",gap:20,flexWrap:"wrap"}}>
-      {/* Doomsday clock SVG */}
-      <svg width={100} height={100} style={{flexShrink:0}}>
-        {/* Tick marks */}
-        {Array.from({length:12},(_,i)=>{const a=(i/12)*2*Math.PI-Math.PI/2;const r1=R-7,r2=R-1;
-          return <line key={i} x1={CX+r1*Math.cos(a)} y1={CY+r1*Math.sin(a)}
-            x2={CX+r2*Math.cos(a)} y2={CY+r2*Math.sin(a)}
-            stroke={T.bd} strokeWidth={1.5}/>;
-        })}
-        {/* Track */}
-        <circle cx={CX} cy={CY} r={R} fill="none" stroke={T.b2} strokeWidth={7}/>
-        {/* Elapsed arc */}
-        {!notStarted&&<circle cx={CX} cy={CY} r={R} fill="none" stroke={urgColor} strokeWidth={7}
-          strokeDasharray={circ} strokeDashoffset={circ*(1-pct)}
-          strokeLinecap="round" transform={`rotate(-90 ${CX} ${CY})`}
-          style={{transition:"stroke-dashoffset 1s linear,stroke 0.5s"}}/>}
-        {/* Tip pulse dot */}
-        {!isDone&&!notStarted&&<circle cx={tipX} cy={tipY} r={5} fill={urgColor}
-          style={{animation:"sleepPulse 1.2s ease-in-out infinite"}}/>}
-        {/* Center */}
-        <text x={CX} y={CY-4} textAnchor="middle"
-          style={{fontFamily:"'DM Mono',monospace",fontSize:"0.58rem",fontWeight:700,fill:urgColor}}>
-          {isDone?"Done":notStarted?"—":pctLeft.toFixed(0)+"%"}
-        </text>
-        <text x={CX} y={CY+9} textAnchor="middle"
-          style={{fontFamily:"'DM Mono',monospace",fontSize:"0.42rem",fill:T.t3}}>
-          {isDone?"day over":notStarted?"not started":"left"}
-        </text>
-      </svg>
-
-      {/* Right side text */}
-      <div style={{flex:1,minWidth:160}}>
-        {notStarted
-          ?<div style={{fontFamily:MO,fontSize:"0.6rem",color:T.t2}}>Your day starts at {wt}</div>
-          :isDone
-          ?<div style={{fontFamily:SE,fontSize:"1.3rem",color:T.t3}}>Day complete</div>
-          :<>
-            <div style={{fontFamily:"'DM Mono',monospace",fontSize:"1.9rem",color:urgColor,
-              fontWeight:700,lineHeight:1,letterSpacing:"-0.02em",marginBottom:3,
-              animation:"dayTick 1s ease-in-out infinite"}}>
+    <div style={{display:"flex",alignItems:"flex-start",gap:14,flexWrap:"wrap"}}>
+      <ClockFace pctE={pctElapsed} color={urgColor}
+        label={isDone?"done":notStarted?"not yet":"left"}
+        sub={`☀ ${wt} – 🌙 ${bt}`}
+        tX={tipX} tY={tipY} noArc={notStarted}/>
+      <ClockFace pctE={pct24} color={dayColor}
+        label="left" sub="12:00 am – 11:59 pm"
+        tX={tipX24} tY={tipY24} noArc={false}/>
+      <div style={{flex:1,minWidth:130}}>
+        <div style={{marginBottom:10}}>
+          <div style={{fontFamily:MO,fontSize:"0.4rem",color:urgColor,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:2}}>Waking day</div>
+          {notStarted
+            ?<div style={{fontFamily:MO,fontSize:"0.58rem",color:T.t2}}>starts at {wt}</div>
+            :isDone
+            ?<div style={{fontFamily:MO,fontSize:"0.58rem",color:T.t3}}>complete</div>
+            :<div style={{fontFamily:"'DM Mono',monospace",fontSize:"1.5rem",color:urgColor,fontWeight:700,lineHeight:1,letterSpacing:"-0.02em",animation:"dayTick 1s ease-in-out infinite"}}>
               {String(dH).padStart(2,"0")}:{String(dM).padStart(2,"0")}:{String(dS).padStart(2,"0")}
-            </div>
-            <div style={{fontFamily:MO,fontSize:"0.5rem",color:T.t2,marginBottom:10}}>
-              remaining · {wt}–{bt}
-            </div>
-          </>}
-        {/* Progress bar */}
+            </div>}
+        </div>
+        <div style={{marginBottom:12}}>
+          <div style={{fontFamily:MO,fontSize:"0.4rem",color:dayColor,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:2}}>Calendar day</div>
+          <div style={{fontFamily:"'DM Mono',monospace",fontSize:"1.5rem",color:dayColor,fontWeight:700,lineHeight:1,letterSpacing:"-0.02em"}}>
+            {String(h24).padStart(2,"0")}:{String(m24).padStart(2,"0")}:{String(s24).padStart(2,"0")}
+          </div>
+        </div>
         {!notStarted&&<>
-          <div style={{display:"flex",justifyContent:"space-between",fontFamily:MO,fontSize:"0.43rem",color:T.t3,marginBottom:3}}>
-            <span>{Math.floor(elapsed/60)}h {Math.floor(elapsed%60)}m elapsed ({pctElapsed.toFixed(1)}%)</span>
-            <span>{pctLeft.toFixed(1)}% left</span>
+          <div style={{marginBottom:6}}>
+            <div style={{display:"flex",justifyContent:"space-between",fontFamily:MO,fontSize:"0.38rem",color:T.t3,marginBottom:2}}>
+              <span>☀ {wt}</span><span>{pctElapsed.toFixed(1)}%</span><span>🌙 {bt}</span>
+            </div>
+            <div style={{height:5,background:T.b2,borderRadius:3,overflow:"hidden"}}>
+              <div style={{height:"100%",background:urgColor,width:`${pctElapsed}%`,borderRadius:3,transition:"width 1s linear"}}/>
+            </div>
           </div>
-          <div style={{height:6,background:T.b2,borderRadius:3,overflow:"hidden"}}>
-            <div style={{height:"100%",background:urgColor,width:`${pctElapsed}%`,
-              borderRadius:3,transition:"width 1s linear"}}/>
-          </div>
-          <div style={{display:"flex",justifyContent:"space-between",fontFamily:MO,fontSize:"0.38rem",color:T.t3,marginTop:3}}>
-            <span>☀ {wt}</span>
-            <span>🌙 {bt}</span>
-          </div>
-          <div style={{fontFamily:MO,fontSize:"0.43rem",color:T.t3,marginTop:5}}>
-            Day length: {Math.floor(totalMins/60)}h {totalMins%60}m
+          <div>
+            <div style={{display:"flex",justifyContent:"space-between",fontFamily:MO,fontSize:"0.38rem",color:T.t3,marginBottom:2}}>
+              <span>12 am</span><span>{pct24.toFixed(1)}%</span><span>midnight</span>
+            </div>
+            <div style={{height:5,background:T.b2,borderRadius:3,overflow:"hidden"}}>
+              <div style={{height:"100%",background:dayColor,width:`${pct24}%`,borderRadius:3,transition:"width 1s linear"}}/>
+            </div>
           </div>
         </>}
       </div>
