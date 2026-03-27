@@ -3500,12 +3500,14 @@ function DayCountdownSection({T,MO,SE,sleepSettings,sleepDayData}){
   const[bH,bM]=bt.split(":").map(Number);
 
   const dayStartMins=wH*60+wM;
-  let dayEndMins=bH*60+bM;
+  const dayEndMinsRaw=bH*60+bM;
+  let dayEndMins=dayEndMinsRaw;
   if(dayEndMins<=dayStartMins)dayEndMins+=1440;
   const totalMins=dayEndMins-dayStartMins;
 
   const nowMins=now.getHours()*60+now.getMinutes()+now.getSeconds()/60;
-  const nowAdj=(nowMins<dayStartMins-60)?nowMins+1440:nowMins;
+  let nowAdj=nowMins;
+  if(dayEndMins>1440&&nowMins<dayEndMinsRaw)nowAdj=nowMins+1440;
   const elapsed=Math.max(0,Math.min(totalMins,nowAdj-dayStartMins));
   const remaining=Math.max(0,totalMins-elapsed);
   const pctElapsed=totalMins>0?elapsed/totalMins*100:0;
@@ -3516,8 +3518,8 @@ function DayCountdownSection({T,MO,SE,sleepSettings,sleepDayData}){
   const dM=Math.floor((Math.max(0,remSecs)%3600)/60);
   const dS=Math.max(0,remSecs)%60;
 
-  const isDone=remaining<=0;
-  const notStarted=elapsed<=0&&nowAdj<dayStartMins;
+  const isDone=nowAdj>=dayEndMins;
+  const notStarted=nowAdj<dayStartMins;
   const urgColor=pctLeft<10?"#ef4444":pctLeft<25?"#f97316":pctLeft<50?"#eab308":T.ac;
 
   // SVG clock
