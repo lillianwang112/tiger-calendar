@@ -3274,7 +3274,7 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
     }
     // Toggle off if already a checkbox row
     if(nd&&nd!==editorRef.current&&nd.dataset&&nd.dataset.cb){
-      const sp=nd.querySelector('span');
+      const sp=nd.children&&nd.children.length>1?nd.children[1]:nd.querySelector('span');
       const p=document.createElement('p');
       p.innerHTML=(sp&&sp.innerHTML)||'<br>';
       nd.parentNode.replaceChild(p,nd);
@@ -3392,8 +3392,9 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
         let nd=range.startContainer;
         while(nd&&nd!==editorRef.current){
           if(nd.dataset&&nd.dataset.cb){
-            const span=nd.querySelector('span');
-            const isEmpty=!span||!span.textContent.trim();
+            // Content span is always the direct second child (children[0]=input, children[1]=span)
+            const sp=nd.children&&nd.children.length>1?nd.children[1]:nd.querySelector('span');
+            const isEmpty=!sp||!sp.textContent.trim();
             if(e.key==="Enter"){
               e.preventDefault();
               if(isEmpty){
@@ -3405,24 +3406,16 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
                 const r=document.createRange();r.setStart(p,0);r.collapse(true);
                 sel.removeAllRanges();sel.addRange(r);
               } else {
-                // Drop a marker at cursor so we can split inside the span
-                const mid='__cbsplit'+Date.now()+'__';
-                document.execCommand('insertHTML',false,`<span id="${mid}"></span>`);
-                const marker=nd.querySelector('#'+mid);
-                const sp=nd.querySelector('span:not(#'+mid+')');
+                // Split span at cursor using direct range — only if cursor is inside sp
                 let afterHTML='';
-                if(marker&&sp&&sp.contains(marker)){
-                  const ar=document.createRange();
-                  ar.setStartAfter(marker);
-                  ar.setEnd(sp,sp.childNodes.length);
+                if(sp&&sp.contains(range.startContainer)){
+                  const splitRange=document.createRange();
+                  splitRange.setStart(range.startContainer,range.startOffset);
+                  splitRange.setEnd(sp,sp.childNodes.length);
                   const tmp=document.createElement('div');
-                  tmp.appendChild(ar.extractContents());
+                  tmp.appendChild(splitRange.extractContents());
                   afterHTML=tmp.innerHTML;
-                  marker.remove();
-                } else if(marker){
-                  marker.remove();
                 }
-                // Build new checkbox row with after-cursor content
                 const newInput=document.createElement('input');
                 newInput.type='checkbox';newInput.style.cssText='width:15px;height:15px;margin-top:4px;cursor:pointer;flex-shrink:0';
                 const newSpan=document.createElement('span');
@@ -3432,13 +3425,10 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
                 newDiv.style.cssText='display:flex;align-items:flex-start;gap:6px;margin:3px 0;line-height:1.7';
                 newDiv.appendChild(newInput);newDiv.appendChild(newSpan);
                 nd.parentNode.insertBefore(newDiv,nd.nextSibling);
-                // Place cursor on text node inside new span
                 editorRef.current.focus();
                 const r=document.createRange();
-                const tn=document.createTextNode('');
-                if(!newSpan.childNodes.length)newSpan.appendChild(tn);
-                const first=newSpan.firstChild;
-                r.setStart(first,0);r.collapse(true);
+                if(!newSpan.firstChild){const tn=document.createTextNode('');newSpan.appendChild(tn);}
+                r.setStart(newSpan.firstChild,0);r.collapse(true);
                 sel.removeAllRanges();sel.addRange(r);
               }
               emit();return;
@@ -3457,6 +3447,9 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
             break;
           }
           nd=nd.parentNode;
+        }
+      }
+    }
         }
       }
     }
