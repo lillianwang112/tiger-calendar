@@ -1326,7 +1326,7 @@ function App(){
           {view==="semester"&&<SemV T={T} sem={sem} events={allEvents} tasks={tasks} exams={exams} assignments={assignments} courses={courses} cats={cats} ac={ac} setModal={setModal} MO={MO} SE={SE} setCd={setCd} setView={setView}/>}
           {view==="tasks-dashboard"&&<TasksDashboard T={T} MO={MO} SE={SE} tasks={tasks} cats={cats} courses={courses} aT={aT} uT={uT} dT={dT} tT={tT} pushUndo={pushUndo}/>}
           {view==="notes-dashboard"&&<NotesDashboard T={T} MO={MO} SE={SE} quickNotes={quickNotes} setQuickNotes={setQuickNotes} journalEntries={journalEntries} setJournalEntries={setJournalEntries}/>}
-          {view==="focus-dashboard"&&<FocusDashboard T={T} MO={MO} SE={SE} tasks={tasks} events={allEvents} courses={courses} cats={cats} exams={exams} assignments={assignments} sem={sem} setChatOpen={setChatOpen} sleepSettings={sleepSettings} setSleepSettings={setSleepSettings} sleepDayData={sleepDayData} setSleepDayData={setSleepDayData}/>}
+          {view==="focus-dashboard"&&<FocusDashboard T={T} MO={MO} SE={SE} tasks={tasks} events={allEvents} courses={courses} cats={cats} exams={exams} assignments={assignments} sem={sem} setChatOpen={setChatOpen} sleepSettings={sleepSettings} setSleepSettings={setSleepSettings} sleepDayData={sleepDayData} setSleepDayData={setSleepDayData} setModal={setModal}/>}
         </>}
       </div>
     </div>
@@ -3397,7 +3397,7 @@ function SleepModal({T,MO,SE,modal,setModal,sleepSettings,setSleepSettings,sleep
   </div>;
 }
 
-function SleepSection({T,MO,SE,sleepSettings,setSleepSettings,sleepDayData,setSleepDayData}){
+function SleepSection({T,MO,SE,sleepSettings,setSleepSettings,sleepDayData,setSleepDayData,setModal}){
   const todayStr=$d(new Date());
   const todayData=sleepDayData[todayStr]||{};
   const[logH,setLogH]=useState(todayData.actualHours!=null?String(todayData.actualHours):"");
@@ -3429,7 +3429,7 @@ function SleepSection({T,MO,SE,sleepSettings,setSleepSettings,sleepDayData,setSl
   return <div style={{background:T.b3,border:`1px solid ${T.bd}`,borderRadius:10,padding:"16px 20px",marginBottom:20}}>
     <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:12,flexWrap:"wrap",gap:8}}>
       <div style={{fontFamily:MO,fontSize:"0.5rem",color:T.t3,textTransform:"uppercase",letterSpacing:"0.08em"}}>Sleep Tracker</div>
-      {!sleepSettings.enabled&&<div style={{fontFamily:MO,fontSize:"0.52rem",color:T.t3}}>Enable in Sleep Settings on calendar to track sleep.</div>}
+      <button onClick={()=>setModal&&setModal({type:"_sleep",sleepDate:todayStr})} style={{padding:"4px 10px",borderRadius:5,border:`1px solid ${T.bd}`,background:"transparent",color:T.t3,cursor:"pointer",fontFamily:MO,fontSize:"0.46rem",letterSpacing:"0.05em"}}>⚙ Settings</button>
       {sleepSettings.enabled&&<div style={{display:"flex",gap:18,flexWrap:"wrap"}}>
         <div><div style={{fontFamily:SE,fontSize:"1.15rem",color:T.ac,lineHeight:1}}>{fmtMins(avgIntended)}</div>
           <div style={{fontFamily:MO,fontSize:"0.43rem",color:T.t3,marginTop:1}}>avg planned/night</div></div>
@@ -3613,7 +3613,7 @@ const TONES=[
   {key:"friend",label:"Brutally Honest Friend",emoji:"🫵",desc:"Real talk, no filter.",sys:"You are the user's brutally honest best friend. You say exactly what you think, call out their BS with humor, but ultimately want them to succeed. Use casual language, light sarcasm when appropriate, but always circle back to actionable advice."},
 ];
 
-function FocusDashboard({T,MO,SE,tasks,events,courses,cats,exams,assignments,sem,setChatOpen,sleepSettings,setSleepSettings,sleepDayData,setSleepDayData}){
+function FocusDashboard({T,MO,SE,tasks,events,courses,cats,exams,assignments,sem,setChatOpen,sleepSettings,setSleepSettings,sleepDayData,setSleepDayData,setModal}){
   const saved=useMemo(()=>{try{const s=localStorage.getItem(FOCUS_STORE_KEY);return s?JSON.parse(s):{};}catch(e){return{};}}, []);
   const save=(d)=>{try{localStorage.setItem(FOCUS_STORE_KEY,JSON.stringify(d));}catch(e){}};
 
@@ -3885,7 +3885,8 @@ function FocusDashboard({T,MO,SE,tasks,events,courses,cats,exams,assignments,sem
         sleepSettings={sleepSettings||{enabled:false,bedtime:"22:00",wakeTime:"07:00"}}
         setSleepSettings={setSleepSettings||function(){}}
         sleepDayData={sleepDayData||{}}
-        setSleepDayData={setSleepDayData||function(){}}/>
+        setSleepDayData={setSleepDayData||function(){}}
+        setModal={setModal}/>
 
       {/* Coach chat */}
       <div style={cardStyle}>
