@@ -942,8 +942,8 @@ function App(){
   const nav=(dir)=>setCd(navDate(cd,dir));
 
   useEffect(()=>{const h=(e)=>{
-    if((e.metaKey||e.ctrlKey)&&e.key==="z"&&!e.shiftKey){e.preventDefault();undo();return;}
-    if(modal||csOpen||settingsOpen||eaOpen)return;if(["INPUT","TEXTAREA","SELECT"].includes(e.target.tagName))return;
+    if((e.metaKey||e.ctrlKey)&&e.key==="z"&&!e.shiftKey){if(e.target.isContentEditable)return;e.preventDefault();undo();return;}
+    if(modal||csOpen||settingsOpen||eaOpen)return;if(["INPUT","TEXTAREA","SELECT"].includes(e.target.tagName))return;if(e.target.isContentEditable)return;
     switch(e.key){case"t":case"T":goT();break;
     case"d":case"D":lastCalViewRef.current="day";setView("day");setViewOpen(false);break;
     case"w":case"W":lastCalViewRef.current="week";setView("week");setViewOpen(false);break;
@@ -3040,14 +3040,17 @@ function parseICS(text){
 // ═══ RICH TEXT EDITOR ═══
 function TextColorPicker({T,colors,onSelect,label,title}){
   const[open,setOpen]=useState(false);
+  const[pos,setPos]=useState({top:0,left:0});
+  const btnRef=useRef(null);
+  const openPicker=(e)=>{e.preventDefault();if(!open&&btnRef.current){const r=btnRef.current.getBoundingClientRect();setPos({top:r.bottom+4,left:r.left});}setOpen(p=>!p);};
   return <div style={{position:"relative",display:"inline-flex"}}>
-    <button onMouseDown={e=>{e.preventDefault();setOpen(p=>!p);}} title={title}
+    <button ref={btnRef} onMouseDown={openPicker} title={title}
       style={{padding:"2px 6px",borderRadius:4,border:`1px solid ${T.bd}`,background:"transparent",
         color:T.tx,cursor:"pointer",fontSize:"0.78rem",height:24,
         display:"inline-flex",alignItems:"center"}}>{label}</button>
     {open&&<>
       <div onMouseDown={e=>{e.preventDefault();setOpen(false);}} style={{position:"fixed",inset:0,zIndex:1999}}/>
-      <div style={{position:"absolute",top:"calc(100% + 4px)",left:0,zIndex:2000,
+      <div style={{position:"fixed",top:pos.top,left:pos.left,zIndex:2000,
         background:T.b2,border:`1px solid ${T.bd}`,borderRadius:6,padding:5,
         display:"grid",gridTemplateColumns:"repeat(5,18px)",gap:3,
         boxShadow:"0 4px 14px rgba(0,0,0,0.28)"}}>
@@ -3067,18 +3070,49 @@ function TextColorPicker({T,colors,onSelect,label,title}){
 function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
   const editorRef=useRef(null);
   const savedRange=useRef(null);
+  const resizingRef=useRef(null);
+  const onChangeRef=useRef(onChange);
   const[showLink,setShowLink]=useState(false);
   const[showTable,setShowTable]=useState(false);
   const[linkUrl,setLinkUrl]=useState("");
   const[tRows,setTRows]=useState(3);
   const[tCols,setTCols]=useState(3);
+  const[af,setAf]=useState({});
 
+  useEffect(()=>{onChangeRef.current=onChange;},[onChange]);
   useEffect(()=>{if(editorRef.current)editorRef.current.innerHTML=initialValue||"";},[]);
+
+  // Column resize global listeners
+  useEffect(()=>{
+    const onMove=(e)=>{
+      if(!resizingRef.current)return;
+      const{cell,startX,startW}=resizingRef.current;
+      const nw=Math.max(30,startW+e.clientX-startX);
+      cell.style.width=nw+"px";cell.style.minWidth=nw+"px";
+    };
+    const onUp=()=>{
+      if(resizingRef.current){resizingRef.current=null;onChangeRef.current(editorRef.current?.innerHTML||"");}
+    };
+    document.addEventListener("mousemove",onMove);
+    document.addEventListener("mouseup",onUp);
+    return()=>{document.removeEventListener("mousemove",onMove);document.removeEventListener("mouseup",onUp);};
+  },[]);
 
   const saveRange=()=>{try{const s=window.getSelection();if(s&&s.rangeCount>0)savedRange.current=s.getRangeAt(0).cloneRange();}catch(e){}};
   const restoreRange=()=>{try{if(savedRange.current&&editorRef.current){editorRef.current.focus();const s=window.getSelection();s.removeAllRanges();s.addRange(savedRange.current);}}catch(e){editorRef.current?.focus();}};
   const emit=()=>onChange(editorRef.current?.innerHTML||"");
-  const exec=(cmd,val=null)=>{restoreRange();document.execCommand(cmd,false,val);emit();};
+  const updAf=()=>{try{setAf({
+    bold:document.queryCommandState("bold"),
+    italic:document.queryCommandState("italic"),
+    underline:document.queryCommandState("underline"),
+    strikeThrough:document.queryCommandState("strikeThrough"),
+    justifyLeft:document.queryCommandState("justifyLeft"),
+    justifyCenter:document.queryCommandState("justifyCenter"),
+    justifyRight:document.queryCommandState("justifyRight"),
+    insertUnorderedList:document.queryCommandState("insertUnorderedList"),
+    insertOrderedList:document.queryCommandState("insertOrderedList"),
+  });}catch(e){}};
+  const exec=(cmd,val=null)=>{restoreRange();document.execCommand(cmd,false,val);emit();updAf();};
 
   const insertTable=()=>{
     restoreRange();
@@ -3087,7 +3121,7 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
     for(let ri=0;ri<r;ri++){h+='<tr>';
       for(let ci=0;ci<c;ci++){
         const t=ri===0?'th':'td';
-        const s=`border:1px solid #888;padding:6px 10px;min-width:60px;text-align:left;${ri===0?"background:rgba(128,128,128,0.12);font-weight:600":""}`;
+        const s=`border:1px solid #888;padding:6px 10px;min-width:30px;text-align:left;${ri===0?"background:rgba(128,128,128,0.12);font-weight:600":""}`;
         h+=`<${t} style="${s}"> </${t}>`;}
       h+='</tr>';}
     h+='</tbody></table><br>';
@@ -3114,28 +3148,68 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
   const B={padding:"2px 6px",borderRadius:4,border:`1px solid ${T.bd}`,background:"transparent",
     color:T.tx,cursor:"pointer",fontSize:"0.78rem",height:24,
     display:"inline-flex",alignItems:"center",justifyContent:"center",minWidth:24,userSelect:"none"};
+  const BA=(cmd,extra={})=>af[cmd]
+    ?{...B,...extra,background:T.ac,color:T.bg,border:`1px solid ${T.ac}`}
+    :{...B,...extra};
   const Sep=()=><div style={{width:1,height:16,background:T.bd,margin:"0 2px",flexShrink:0}}/>;
+
+  const handleEditorKeyDown=(e)=>{
+    if(e.key==="Tab"){e.preventDefault();document.execCommand('insertHTML',false,'&nbsp;&nbsp;&nbsp;&nbsp;');return;}
+    if(e.metaKey||e.ctrlKey){
+      switch(e.key){
+        case'b':e.preventDefault();exec('bold');break;
+        case'i':e.preventDefault();exec('italic');break;
+        case'u':e.preventDefault();exec('underline');break;
+        case'z':if(!e.shiftKey){e.preventDefault();document.execCommand('undo',false,null);emit();updAf();}
+                else{e.preventDefault();document.execCommand('redo',false,null);emit();updAf();}break;
+        case'y':e.preventDefault();document.execCommand('redo',false,null);emit();updAf();break;
+        case'k':e.preventDefault();saveRange();setShowLink(p=>!p);break;
+      }
+    }
+  };
+
+  const handleEditorMouseDown=(e)=>{
+    const cell=e.target.closest('td,th');
+    if(cell&&!resizingRef.current){
+      const rect=cell.getBoundingClientRect();
+      if(e.clientX>rect.right-7&&e.clientX<=rect.right+3){
+        e.preventDefault();
+        resizingRef.current={cell,startX:e.clientX,startW:cell.offsetWidth};
+      }
+    }
+  };
+
+  const handleEditorMouseMove=(e)=>{
+    if(resizingRef.current||!editorRef.current)return;
+    const cell=e.target.closest('td,th');
+    if(cell){
+      const rect=cell.getBoundingClientRect();
+      editorRef.current.style.cursor=(e.clientX>rect.right-7&&e.clientX<=rect.right+3)?"col-resize":"text";
+    } else {
+      editorRef.current.style.cursor="text";
+    }
+  };
 
   return <div style={{border:`1px solid ${T.bd}`,borderRadius:8,overflow:"hidden",display:"flex",flexDirection:"column"}}>
     {/* Toolbar */}
     <div style={{background:T.b2,borderBottom:`1px solid ${T.bd}`,padding:"4px 8px",
       display:"flex",flexWrap:"wrap",gap:2,alignItems:"center"}}>
-      <button style={{...B,fontWeight:700}} onMouseDown={e=>{e.preventDefault();exec('bold');}} title="Bold">B</button>
-      <button style={{...B,fontStyle:"italic"}} onMouseDown={e=>{e.preventDefault();exec('italic');}} title="Italic"><em>I</em></button>
-      <button style={{...B,textDecoration:"underline"}} onMouseDown={e=>{e.preventDefault();exec('underline');}} title="Underline"><u>U</u></button>
-      <button style={{...B,textDecoration:"line-through"}} onMouseDown={e=>{e.preventDefault();exec('strikeThrough');}} title="Strikethrough"><s>S</s></button>
+      <button style={BA('bold',{fontWeight:700})} onMouseDown={e=>{e.preventDefault();exec('bold');}} title="Bold (⌘B)">B</button>
+      <button style={BA('italic',{fontStyle:"italic"})} onMouseDown={e=>{e.preventDefault();exec('italic');}} title="Italic (⌘I)"><em>I</em></button>
+      <button style={BA('underline',{textDecoration:"underline"})} onMouseDown={e=>{e.preventDefault();exec('underline');}} title="Underline (⌘U)"><u>U</u></button>
+      <button style={BA('strikeThrough',{textDecoration:"line-through"})} onMouseDown={e=>{e.preventDefault();exec('strikeThrough');}} title="Strikethrough"><s>S</s></button>
       <Sep/>
       <button style={{...B,fontFamily:"'DM Serif Display',serif",fontWeight:700,fontSize:"0.88rem"}} onMouseDown={e=>{e.preventDefault();exec('formatBlock','h1');}} title="Heading 1">H1</button>
       <button style={{...B,fontFamily:"'DM Serif Display',serif",fontWeight:700,fontSize:"0.8rem"}} onMouseDown={e=>{e.preventDefault();exec('formatBlock','h2');}} title="Heading 2">H2</button>
       <button style={{...B,fontFamily:"'DM Serif Display',serif",fontWeight:600,fontSize:"0.74rem"}} onMouseDown={e=>{e.preventDefault();exec('formatBlock','h3');}} title="Heading 3">H3</button>
       <button style={{...B,fontSize:"0.7rem"}} onMouseDown={e=>{e.preventDefault();exec('formatBlock','p');}} title="Normal">¶</button>
       <Sep/>
-      <button style={B} onMouseDown={e=>{e.preventDefault();exec('justifyLeft');}} title="Align left">⬱</button>
-      <button style={B} onMouseDown={e=>{e.preventDefault();exec('justifyCenter');}} title="Center">☰</button>
-      <button style={B} onMouseDown={e=>{e.preventDefault();exec('justifyRight');}} title="Align right">⬰</button>
+      <button style={BA('justifyLeft')} onMouseDown={e=>{e.preventDefault();exec('justifyLeft');}} title="Align left">⬱</button>
+      <button style={BA('justifyCenter')} onMouseDown={e=>{e.preventDefault();exec('justifyCenter');}} title="Center">☰</button>
+      <button style={BA('justifyRight')} onMouseDown={e=>{e.preventDefault();exec('justifyRight');}} title="Align right">⬰</button>
       <Sep/>
-      <button style={{...B,fontSize:"0.72rem"}} onMouseDown={e=>{e.preventDefault();exec('insertUnorderedList');}} title="Bullets">• ≡</button>
-      <button style={{...B,fontSize:"0.72rem"}} onMouseDown={e=>{e.preventDefault();exec('insertOrderedList');}} title="Numbered">1.≡</button>
+      <button style={BA('insertUnorderedList',{fontSize:"0.72rem"})} onMouseDown={e=>{e.preventDefault();exec('insertUnorderedList');}} title="Bullets">• ≡</button>
+      <button style={BA('insertOrderedList',{fontSize:"0.72rem"})} onMouseDown={e=>{e.preventDefault();exec('insertOrderedList');}} title="Numbered">1.≡</button>
       <button style={B} onMouseDown={e=>{e.preventDefault();insertCb();}} title="Checkbox">☑</button>
       <button style={{...B,fontSize:"0.7rem"}} onMouseDown={e=>{e.preventDefault();exec('insertHorizontalRule');}} title="Divider">——</button>
       <Sep/>
@@ -3148,7 +3222,7 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
         label={<span style={{background:"#fef08a",padding:"0 2px",borderRadius:2}}>H</span>}
         title="Highlight"/>
       <Sep/>
-      <button style={B} onMouseDown={e=>{e.preventDefault();saveRange();setShowLink(p=>!p);}} title="Link">🔗</button>
+      <button style={B} onMouseDown={e=>{e.preventDefault();saveRange();setShowLink(p=>!p);}} title="Link (⌘K)">🔗</button>
       <button style={B} onMouseDown={e=>{e.preventDefault();saveRange();setShowTable(p=>!p);}} title="Table">⊞</button>
       <Sep/>
       <button style={{...B,fontSize:"0.65rem",color:T.t3}} onMouseDown={e=>{e.preventDefault();exec('removeFormat');}} title="Clear formatting">✕fmt</button>
@@ -3179,8 +3253,12 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
     <div className="rte-wrap" ref={editorRef}
       contentEditable suppressContentEditableWarning
       data-placeholder={placeholder||"Start writing…"}
-      onInput={emit} onMouseUp={saveRange} onKeyUp={saveRange}
-      onKeyDown={e=>{if(e.key==="Tab"){e.preventDefault();document.execCommand('insertHTML',false,'&nbsp;&nbsp;&nbsp;&nbsp;');}}}
+      onInput={emit}
+      onMouseUp={()=>{saveRange();updAf();}}
+      onKeyUp={()=>{saveRange();updAf();}}
+      onKeyDown={handleEditorKeyDown}
+      onMouseDown={handleEditorMouseDown}
+      onMouseMove={handleEditorMouseMove}
       style={{flex:1,minHeight:minHeight||300,padding:"14px 18px",color:T.tx,
         fontSize:"0.92rem",lineHeight:1.8,outline:"none",
         fontFamily:"'DM Sans',sans-serif",overflowY:"auto",
@@ -5959,9 +6037,10 @@ function NotesDashboard({T,MO,SE,quickNotes,setQuickNotes,journalEntries,setJour
             <div style={{fontFamily:MO,fontSize:"0.56rem",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.08em",color:T.t2}}>Quick Notes</div>
             <span style={{fontFamily:MO,fontSize:"0.5rem",color:T.t3,opacity:notesSaved?1:0,transition:"opacity 0.3s"}}>Saved ✓</span>
           </div>
-          <textarea value={quickNotes||""} onChange={e=>handleNotesChange(e.target.value)}
+          <RichTextEditor key="quick-notes-rte" initialValue={quickNotes||""}
+            onChange={handleNotesChange} T={T} MO={MO}
             placeholder="Ideas, reminders, links, scratch space…"
-            style={{...IS3,minHeight:isMobile?180:440}}/>
+            minHeight={isMobile?180:440}/>
           <div style={{fontFamily:MO,fontSize:"0.46rem",color:T.t3,marginTop:8}}>Auto-saves as you type · Synced to your account</div>
         </div>
 
