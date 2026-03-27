@@ -3263,8 +3263,39 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
   };
   const insertCb=()=>{
     restoreRange();
-    document.execCommand('insertHTML',false,
-      `<div style="display:flex;align-items:flex-start;gap:6px;margin:3px 0;line-height:1.7"><input type="checkbox" style="width:15px;height:15px;margin-top:4px;cursor:pointer;flex-shrink:0"><span> To-do item</span></div>`);
+    const sel=window.getSelection();
+    if(!sel||!sel.rangeCount||!editorRef.current)return;
+    const range=sel.getRangeAt(0);
+    // Walk up to find the nearest block-level parent inside the editor
+    let nd=range.startContainer;
+    while(nd&&nd!==editorRef.current&&
+      !['P','DIV','H1','H2','H3','H4','H5','H6','LI','BLOCKQUOTE','PRE'].includes(nd.nodeName)){
+      nd=nd.parentNode;
+    }
+    // Toggle off if already a checkbox row
+    if(nd&&nd!==editorRef.current&&nd.dataset&&nd.dataset.cb){
+      const span=nd.querySelector('span');
+      const p=document.createElement('p');
+      p.innerHTML=(span&&span.innerHTML)||'<br>';
+      nd.parentNode.replaceChild(p,nd);
+      const r=document.createRange();r.selectNodeContents(p);r.collapse(false);
+      sel.removeAllRanges();sel.addRange(r);
+      emit();return;
+    }
+    // Build the checkbox div, preserving existing line content
+    const inner=(nd&&nd!==editorRef.current)?(nd.innerHTML||''):'';
+    const cbDiv=document.createElement('div');
+    cbDiv.dataset.cb='1';
+    cbDiv.style.cssText='display:flex;align-items:flex-start;gap:6px;margin:3px 0;line-height:1.7';
+    cbDiv.innerHTML=`<input type="checkbox" style="width:15px;height:15px;margin-top:4px;cursor:pointer;flex-shrink:0"><span>${inner}</span>`;
+    if(nd&&nd!==editorRef.current){
+      nd.parentNode.replaceChild(cbDiv,nd);
+    } else {
+      range.deleteContents();range.insertNode(cbDiv);
+    }
+    // Place cursor at end of span
+    const span=cbDiv.querySelector('span');
+    if(span){const r=document.createRange();r.selectNodeContents(span);r.collapse(false);sel.removeAllRanges();sel.addRange(r);}
     emit();
   };
   const findNext=(dir=1)=>{
@@ -3334,6 +3365,51 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
   const CB={padding:"5px 9px",borderRadius:5,border:`1px solid ${T.bd}`,background:"transparent",color:T.t2,fontSize:"0.85rem",cursor:"pointer"};
 
   const handleEditorKeyDown=(e)=>{
+    // Checkbox row: Enter creates next checkbox, Backspace on empty exits
+    if(e.key==="Enter"||e.key==="Backspace"){
+      const sel=window.getSelection();
+      if(sel&&sel.rangeCount){
+        let nd=sel.getRangeAt(0).startContainer;
+        while(nd&&nd!==editorRef.current){
+          if(nd.dataset&&nd.dataset.cb){
+            const span=nd.querySelector('span');
+            const isEmpty=!span||!span.textContent.trim();
+            if(e.key==="Enter"){
+              e.preventDefault();
+              if(isEmpty){
+                // Exit to normal paragraph
+                const p=document.createElement('p');p.innerHTML='<br>';
+                nd.parentNode.insertBefore(p,nd.nextSibling);
+                nd.parentNode.removeChild(nd);
+                const r=document.createRange();r.setStart(p,0);r.collapse(true);
+                sel.removeAllRanges();sel.addRange(r);
+              } else {
+                // New checkbox on next line
+                const newDiv=document.createElement('div');
+                newDiv.dataset.cb='1';
+                newDiv.style.cssText='display:flex;align-items:flex-start;gap:6px;margin:3px 0;line-height:1.7';
+                newDiv.innerHTML=`<input type="checkbox" style="width:15px;height:15px;margin-top:4px;cursor:pointer;flex-shrink:0"><span></span>`;
+                nd.parentNode.insertBefore(newDiv,nd.nextSibling);
+                const ns=newDiv.querySelector('span');
+                const r=document.createRange();r.setStart(ns,0);r.collapse(true);
+                sel.removeAllRanges();sel.addRange(r);
+              }
+              emit();return;
+            }
+            if(e.key==="Backspace"&&isEmpty){
+              e.preventDefault();
+              const p=document.createElement('p');p.innerHTML='<br>';
+              nd.parentNode.replaceChild(p,nd);
+              const r=document.createRange();r.setStart(p,0);r.collapse(true);
+              sel.removeAllRanges();sel.addRange(r);
+              emit();return;
+            }
+            break;
+          }
+          nd=nd.parentNode;
+        }
+      }
+    }
     if(e.key==="Tab"){
       e.preventDefault();
       if(e.shiftKey)exec('outdent');
@@ -6291,22 +6367,65 @@ function NotesDashboard({T,MO,SE,quickNotes,setQuickNotes,journalEntries,setJour
   const[browseFilter,setBrowseFilter]=useState("all");
   const[notesSaved,setNotesSaved]=useState(false);
   const saveTimerRef=useRef(null);
-  // Responsive: re-check on mount only (single-page app, no resize tracking needed)
   const[vw,setVw]=useState(window.innerWidth);
   useEffect(()=>{const h=()=>setVw(window.innerWidth);window.addEventListener("resize",h);return()=>window.removeEventListener("resize",h);},[]);
   const isMobile=vw<768;
+
+  // ── Document tabs for Quick Notes ──
+  const parseNoteTabs=(raw)=>{
+    if(raw&&typeof raw==="string"&&raw.startsWith('{"tabs"')){
+      try{return JSON.parse(raw);}catch{}
+    }
+    return{tabs:[{id:"1",title:"Untitled",html:raw||""}],active:"1"};
+  };
+  const[docTabState,setDocTabState]=useState(()=>parseNoteTabs(quickNotes));
+  const docTabs=docTabState.tabs;
+  const activeDocTabId=docTabState.active;
+  const[editingTabId,setEditingTabId]=useState(null);
+  const[editTabTitle,setEditTabTitle]=useState("");
+  const persistDocTabs=(tabs,active)=>{
+    const s=JSON.stringify({tabs,active});
+    setQuickNotes(s);setNotesSaved(false);
+    if(saveTimerRef.current)clearTimeout(saveTimerRef.current);
+    saveTimerRef.current=setTimeout(()=>setNotesSaved(true),800);
+  };
+  const addDocTab=()=>{
+    const id=Date.now().toString();
+    const newTab={id,title:`Untitled ${docTabs.length+1}`,html:""};
+    const tabs=[...docTabs,newTab];
+    setDocTabState({tabs,active:id});
+    persistDocTabs(tabs,id);
+  };
+  const closeDocTab=(id,e)=>{
+    e.stopPropagation();
+    if(docTabs.length===1)return;
+    const tabs=docTabs.filter(t=>t.id!==id);
+    const newActive=id===activeDocTabId?tabs[tabs.length-1].id:activeDocTabId;
+    setDocTabState({tabs,active:newActive});
+    persistDocTabs(tabs,newActive);
+  };
+  const switchDocTab=(id)=>{
+    setDocTabState(p=>({...p,active:id}));
+  };
+  const commitTabRename=()=>{
+    if(!editingTabId)return;
+    const tabs=docTabs.map(t=>t.id===editingTabId?{...t,title:editTabTitle||t.title}:t);
+    setDocTabState(p=>({...p,tabs}));
+    persistDocTabs(tabs,activeDocTabId);
+    setEditingTabId(null);
+  };
+  const activeDocTab=docTabs.find(t=>t.id===activeDocTabId)||docTabs[0];
+  const handleNotesChange=(v)=>{
+    const tabs=docTabs.map(t=>t.id===activeDocTabId?{...t,html:v}:t);
+    setDocTabState(p=>({...p,tabs}));
+    persistDocTabs(tabs,activeDocTabId);
+  };
 
   const entryKey=journalMode==="daily"?journalDate:weekStart;
   const entryType=journalMode==="daily"?"daily":"weekly";
   const findEntry=(key,type)=>(journalEntries||[]).find(e=>e.date===key&&(e.type===type||(type==="daily"&&!e.type)));
   const currentEntry=findEntry(entryKey,entryType);
   const initialContent=currentEntry?.content||currentEntry?.text||"";
-
-  const handleNotesChange=(v)=>{
-    setQuickNotes(v);setNotesSaved(false);
-    if(saveTimerRef.current)clearTimeout(saveTimerRef.current);
-    saveTimerRef.current=setTimeout(()=>setNotesSaved(true),800);
-  };
 
   const saveEntry=()=>{
     const html=editorHtml.trim();
@@ -6384,9 +6503,50 @@ function NotesDashboard({T,MO,SE,quickNotes,setQuickNotes,journalEntries,setJour
 
     {/* ── Quick Notes panel ── */}
     {notesTab==="notes"&&<div style={{flex:1,overflow:"hidden",display:"flex",flexDirection:"column"}}>
-      <RichTextEditor key="quick-notes-rte" initialValue={quickNotes||""}
+      {/* ── Document tab bar ── */}
+      <div style={{background:T.b2,borderBottom:`1px solid ${T.bd}`,display:"flex",
+        alignItems:"flex-end",overflowX:"auto",flexShrink:0,
+        scrollbarWidth:"none",WebkitOverflowScrolling:"touch",gap:2,padding:"4px 8px 0"}}>
+        {docTabs.map(tab=>{
+          const isActive=tab.id===activeDocTabId;
+          return <div key={tab.id}
+            style={{display:"flex",alignItems:"center",gap:4,
+              padding:"6px 12px 5px",borderRadius:"6px 6px 0 0",cursor:"pointer",flexShrink:0,
+              background:isActive?T.b3:"transparent",
+              border:isActive?`1px solid ${T.bd}`:"1px solid transparent",
+              borderBottom:isActive?`1px solid ${T.b3}`:"none",
+              marginBottom:isActive?-1:0,
+              transition:"background 0.12s"}}
+            onClick={()=>switchDocTab(tab.id)}>
+            {editingTabId===tab.id
+              ?<input autoFocus value={editTabTitle}
+                  onChange={e=>setEditTabTitle(e.target.value)}
+                  onBlur={commitTabRename}
+                  onKeyDown={e=>{if(e.key==="Enter")commitTabRename();if(e.key==="Escape"){setEditingTabId(null);}}}
+                  onClick={e=>e.stopPropagation()}
+                  style={{width:90,fontSize:"0.78rem",fontFamily:"'DM Sans',sans-serif",
+                    background:"transparent",border:"none",outline:"none",color:T.tx,padding:0}}/>
+              :<span onDoubleClick={e=>{e.stopPropagation();setEditingTabId(tab.id);setEditTabTitle(tab.title);}}
+                  style={{fontSize:"0.78rem",fontFamily:"'DM Sans',sans-serif",
+                    color:isActive?T.tx:T.t3,whiteSpace:"nowrap",maxWidth:120,
+                    overflow:"hidden",textOverflow:"ellipsis",userSelect:"none"}}>
+                  {tab.title}
+                </span>}
+            {docTabs.length>1&&<button
+              onClick={e=>closeDocTab(tab.id,e)}
+              style={{background:"none",border:"none",color:T.t3,cursor:"pointer",
+                fontSize:"0.7rem",padding:"0 0 0 2px",lineHeight:1,opacity:isActive?1:0.5}}>✕</button>}
+          </div>;
+        })}
+        <button onClick={addDocTab}
+          style={{flexShrink:0,padding:"6px 10px 5px",background:"transparent",
+            border:"none",color:T.t3,cursor:"pointer",fontSize:"1rem",lineHeight:1,
+            borderRadius:"6px 6px 0 0",marginBottom:0}}>+</button>
+      </div>
+      {/* ── Active tab editor ── */}
+      <RichTextEditor key={activeDocTabId} initialValue={activeDocTab?.html||""}
         onChange={handleNotesChange} T={T} MO={MO}
-        placeholder="Ideas, reminders, links, scratch space…"
+        placeholder="Start writing…"
         minHeight={isMobile?300:500}/>
     </div>}
 
