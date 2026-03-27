@@ -75,20 +75,24 @@
   .lp-ripple { animation: longPressRipple 0.32s ease-out forwards; pointer-events:none; }
   @keyframes sleepPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:0.55;transform:scale(1.18)}}
   @keyframes dayTick{0%,100%{opacity:1}50%{opacity:0.7}}
-  .rte-wrap h1{font-family:'DM Serif Display',Georgia,serif;font-size:1.55rem;font-weight:700;margin:10px 0 4px;line-height:1.2}
-  .rte-wrap h2{font-family:'DM Serif Display',Georgia,serif;font-size:1.25rem;font-weight:700;margin:8px 0 3px;line-height:1.2}
-  .rte-wrap h3{font-family:'DM Serif Display',Georgia,serif;font-size:1.05rem;font-weight:600;margin:7px 0 2px;line-height:1.2}
-  .rte-wrap a{color:#6366f1;text-decoration:underline}
-  .rte-wrap ul{padding-left:22px;margin:4px 0}
-  .rte-wrap ol{padding-left:22px;margin:4px 0}
-  .rte-wrap li{margin:2px 0;line-height:1.7}
+  .rte-wrap h1{font-family:'DM Serif Display',Georgia,serif;font-size:1.7rem;font-weight:700;margin:16px 0 6px;line-height:1.25;letter-spacing:-0.01em}
+  .rte-wrap h2{font-family:'DM Serif Display',Georgia,serif;font-size:1.35rem;font-weight:700;margin:12px 0 5px;line-height:1.25}
+  .rte-wrap h3{font-family:'DM Serif Display',Georgia,serif;font-size:1.1rem;font-weight:600;margin:10px 0 4px;line-height:1.3}
+  .rte-wrap p{margin:0 0 6px}
+  .rte-wrap a{color:#4f6ef7;text-decoration:underline;text-underline-offset:2px}
+  .rte-wrap a:hover{color:#3b56e8}
+  .rte-wrap ul{padding-left:24px;margin:4px 0 8px}
+  .rte-wrap ol{padding-left:24px;margin:4px 0 8px}
+  .rte-wrap li{margin:3px 0;line-height:1.75}
   .rte-wrap table{border-collapse:collapse;width:100%;margin:10px 0}
-  .rte-wrap td,.rte-wrap th{border:1px solid #888;padding:6px 10px;min-width:60px;text-align:left}
+  .rte-wrap td,.rte-wrap th{border:1px solid #a0a0a0;padding:7px 12px;min-width:60px;text-align:left}
   .rte-wrap th{background:rgba(128,128,128,0.1);font-weight:600}
-  .rte-wrap hr{border:none;border-top:2px solid rgba(128,128,128,0.3);margin:12px 0}
-  .rte-wrap blockquote{border-left:3px solid #6366f1;margin:8px 0;padding:4px 14px;opacity:0.85}
-  .rte-wrap [data-placeholder]:empty:before{content:attr(data-placeholder);color:#888;pointer-events:none;font-style:italic}
-  .rte-wrap:focus-within [data-placeholder]:empty:before{color:#aaa}
+  .rte-wrap hr{border:none;border-top:2px solid rgba(128,128,128,0.22);margin:16px 0}
+  .rte-wrap blockquote{border-left:3px solid #6366f1;margin:10px 0;padding:6px 16px;opacity:0.9;font-style:italic}
+  .rte-wrap pre{background:rgba(128,128,128,0.1);border-radius:6px;padding:10px 14px;font-family:'DM Mono',monospace;font-size:0.85em;overflow-x:auto;margin:8px 0;white-space:pre-wrap}
+  .rte-wrap [data-placeholder]:empty:before{content:attr(data-placeholder);color:#999;pointer-events:none;font-style:italic}
+  .rte-wrap:focus-within [data-placeholder]:empty:before{color:#bbb}
+  .rte-tb::-webkit-scrollbar{display:none}
 </style>
 </head>
 <body>
@@ -3044,26 +3048,42 @@ function TextColorPicker({T,colors,onSelect,label,title}){
   const[open,setOpen]=useState(false);
   const[pos,setPos]=useState({top:0,left:0});
   const btnRef=useRef(null);
-  const openPicker=(e)=>{e.preventDefault();if(!open&&btnRef.current){const r=btnRef.current.getBoundingClientRect();setPos({top:r.bottom+4,left:r.left});}setOpen(p=>!p);};
+  const openPicker=(e)=>{
+    e.preventDefault();
+    if(btnRef.current){
+      const r=btnRef.current.getBoundingClientRect();
+      // 5 cols × 22px + 4 gaps × 4px + 16px padding = 142px dropdown width
+      const dropW=142;
+      let left=r.left;
+      if(left+dropW>window.innerWidth-8) left=Math.max(8,window.innerWidth-dropW-8);
+      setPos({top:r.bottom+6,left});
+    }
+    setOpen(p=>!p);
+  };
   return <div style={{position:"relative",display:"inline-flex"}}>
     <button ref={btnRef} onMouseDown={openPicker} title={title}
-      style={{padding:"2px 6px",borderRadius:4,border:`1px solid ${T.bd}`,background:"transparent",
-        color:T.tx,cursor:"pointer",fontSize:"0.78rem",height:24,
-        display:"inline-flex",alignItems:"center"}}>{label}</button>
+      style={{padding:"2px 5px",borderRadius:4,border:`1px solid ${T.bd}`,background:"transparent",
+        color:T.tx,cursor:"pointer",fontSize:"0.78rem",height:28,flexShrink:0,
+        display:"inline-flex",alignItems:"center",gap:2}}>
+      {label}<span style={{fontSize:"0.48rem",opacity:0.45,lineHeight:1}}>▾</span>
+    </button>
     {open&&<>
       <div onMouseDown={e=>{e.preventDefault();setOpen(false);}} style={{position:"fixed",inset:0,zIndex:1999}}/>
       <div style={{position:"fixed",top:pos.top,left:pos.left,zIndex:2000,
-        background:T.b2,border:`1px solid ${T.bd}`,borderRadius:6,padding:5,
-        display:"grid",gridTemplateColumns:"repeat(5,18px)",gap:3,
-        boxShadow:"0 4px 14px rgba(0,0,0,0.28)"}}>
+        background:T.b3,border:`1px solid ${T.bd}`,borderRadius:8,padding:8,
+        display:"grid",gridTemplateColumns:"repeat(5,22px)",gap:4,
+        boxShadow:"0 8px 24px rgba(0,0,0,0.2)"}}>
         {colors.map((c,i)=><div key={i}
           onMouseDown={e=>{e.preventDefault();onSelect(c);setOpen(false);}}
-          style={{width:18,height:18,borderRadius:3,cursor:"pointer",
+          style={{width:22,height:22,borderRadius:4,cursor:"pointer",
             background:c==="transparent"
               ?"linear-gradient(135deg,#ccc 25%,transparent 25%,transparent 75%,#ccc 75%),linear-gradient(135deg,#ccc 25%,transparent 25%,transparent 75%,#ccc 75%)"
               :c,
             backgroundSize:"8px 8px",backgroundPosition:"0 0,4px 4px",
-            border:`1px solid ${T.bd}40`,outline:"1px solid transparent"}}/>)}
+            border:"1px solid rgba(0,0,0,0.12)",transition:"transform 0.1s,outline 0.1s"}}
+          onMouseEnter={e=>e.currentTarget.style.outline="2px solid "+T.ac}
+          onMouseLeave={e=>e.currentTarget.style.outline="none"}
+        />)}
       </div>
     </>}
   </div>;
@@ -3080,6 +3100,8 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
   const[tRows,setTRows]=useState(3);
   const[tCols,setTCols]=useState(3);
   const[af,setAf]=useState({});
+  const[selFontSize,setSelFontSize]=useState("14");
+  const FSIZES=["8","9","10","11","12","14","16","18","20","24","28","36"];
 
   useEffect(()=>{onChangeRef.current=onChange;},[onChange]);
   useEffect(()=>{if(editorRef.current)editorRef.current.innerHTML=initialValue||"";},[]);
@@ -3100,21 +3122,53 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
     return()=>{document.removeEventListener("mousemove",onMove);document.removeEventListener("mouseup",onUp);};
   },[]);
 
+  // styleWithCSS makes bold/italic/color use <span style="..."> instead of <b>/<font>
+  // This fixes: bold resetting color, bold+italic not coexisting
+  const sty=()=>{try{document.execCommand('styleWithCSS',false,true);}catch(e){}};
   const saveRange=()=>{try{const s=window.getSelection();if(s&&s.rangeCount>0)savedRange.current=s.getRangeAt(0).cloneRange();}catch(e){}};
   const restoreRange=()=>{try{if(savedRange.current&&editorRef.current){editorRef.current.focus();const s=window.getSelection();s.removeAllRanges();s.addRange(savedRange.current);}}catch(e){editorRef.current?.focus();}};
   const emit=()=>onChange(editorRef.current?.innerHTML||"");
-  const updAf=()=>{try{setAf({
-    bold:document.queryCommandState("bold"),
-    italic:document.queryCommandState("italic"),
-    underline:document.queryCommandState("underline"),
-    strikeThrough:document.queryCommandState("strikeThrough"),
-    justifyLeft:document.queryCommandState("justifyLeft"),
-    justifyCenter:document.queryCommandState("justifyCenter"),
-    justifyRight:document.queryCommandState("justifyRight"),
-    insertUnorderedList:document.queryCommandState("insertUnorderedList"),
-    insertOrderedList:document.queryCommandState("insertOrderedList"),
-  });}catch(e){}};
-  const exec=(cmd,val=null)=>{restoreRange();document.execCommand(cmd,false,val);emit();updAf();};
+  const updAf=()=>{
+    try{
+      sty();
+      setAf({
+        bold:document.queryCommandState("bold"),
+        italic:document.queryCommandState("italic"),
+        underline:document.queryCommandState("underline"),
+        strikeThrough:document.queryCommandState("strikeThrough"),
+        justifyLeft:document.queryCommandState("justifyLeft"),
+        justifyCenter:document.queryCommandState("justifyCenter"),
+        justifyRight:document.queryCommandState("justifyRight"),
+        insertUnorderedList:document.queryCommandState("insertUnorderedList"),
+        insertOrderedList:document.queryCommandState("insertOrderedList"),
+      });
+      const sel=window.getSelection();
+      if(sel&&sel.rangeCount>0){
+        let nd=sel.getRangeAt(0).startContainer;
+        if(nd.nodeType===3)nd=nd.parentElement;
+        if(nd&&editorRef.current?.contains(nd)){
+          const px=parseFloat(window.getComputedStyle(nd).fontSize);
+          if(!isNaN(px))setSelFontSize(String(Math.round(px)));
+        }
+      }
+    }catch(e){}
+  };
+  const exec=(cmd,val=null)=>{restoreRange();sty();document.execCommand(cmd,false,val);emit();updAf();};
+
+  const applyFontSize=(px)=>{
+    restoreRange();sty();
+    // Use size=7 as placeholder then swap in a styled span
+    document.execCommand('fontSize',false,'7');
+    if(editorRef.current){
+      editorRef.current.querySelectorAll('font[size="7"]').forEach(font=>{
+        const span=document.createElement('span');
+        span.style.fontSize=px+'px';
+        span.innerHTML=font.innerHTML;
+        font.parentNode.replaceChild(span,font);
+      });
+    }
+    emit();setSelFontSize(String(px));
+  };
 
   const insertTable=()=>{
     restoreRange();
@@ -3145,15 +3199,18 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
     emit();
   };
 
-  const TC=["#e8e6f0","#f87171","#fb923c","#fbbf24","#4ade80","#60a5fa","#a78bfa","#f472b6","#94a3b8","#111111"];
+  const TC=["#111111","#ef4444","#f97316","#eab308","#22c55e","#3b82f6","#8b5cf6","#ec4899","#6b7280","#ffffff"];
   const HC=["#fef08a","#bbf7d0","#bfdbfe","#fecaca","#e9d5ff","#fed7aa","#cffafe","transparent"];
-  const B={padding:"2px 6px",borderRadius:4,border:`1px solid ${T.bd}`,background:"transparent",
-    color:T.tx,cursor:"pointer",fontSize:"0.78rem",height:24,
-    display:"inline-flex",alignItems:"center",justifyContent:"center",minWidth:24,userSelect:"none"};
+
+  const B={padding:"2px 5px",borderRadius:4,border:"1px solid transparent",background:"transparent",
+    color:T.tx,cursor:"pointer",fontSize:"0.78rem",height:28,
+    display:"inline-flex",alignItems:"center",justifyContent:"center",minWidth:28,userSelect:"none",flexShrink:0};
   const BA=(cmd,extra={})=>af[cmd]
-    ?{...B,...extra,background:T.ac,color:T.bg,border:`1px solid ${T.ac}`}
+    ?{...B,...extra,background:T.ac+"22",color:T.ac,border:`1px solid ${T.ac}55`}
     :{...B,...extra};
-  const Sep=()=><div style={{width:1,height:16,background:T.bd,margin:"0 2px",flexShrink:0}}/>;
+  const Sep=()=><div style={{width:1,height:18,background:T.bd,margin:"0 2px",flexShrink:0,alignSelf:"center"}}/>;
+  const IS={padding:"2px 5px",borderRadius:4,border:`1px solid ${T.bd}`,background:T.ib,
+    color:T.tx,fontSize:"0.78rem",height:28,outline:"none",cursor:"pointer",flexShrink:0};
 
   const handleEditorKeyDown=(e)=>{
     if(e.key==="Tab"){e.preventDefault();document.execCommand('insertHTML',false,'&nbsp;&nbsp;&nbsp;&nbsp;');return;}
@@ -3192,66 +3249,99 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
     }
   };
 
-  return <div style={{border:`1px solid ${T.bd}`,borderRadius:8,overflow:"hidden",display:"flex",flexDirection:"column"}}>
-    {/* Toolbar */}
-    <div style={{background:T.b2,borderBottom:`1px solid ${T.bd}`,padding:"4px 8px",
-      display:"flex",flexWrap:"wrap",gap:2,alignItems:"center"}}>
-      <button style={BA('bold',{fontWeight:700})} onMouseDown={e=>{e.preventDefault();exec('bold');}} title="Bold (⌘B)">B</button>
+  return <div style={{border:`1px solid ${T.bd}`,borderRadius:8,overflow:"hidden",display:"flex",flexDirection:"column",boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
+    {/* Toolbar — nowrap + overflow-x:auto makes it scrollable on mobile */}
+    <div className="rte-tb" style={{background:T.b2,borderBottom:`1px solid ${T.bd}`,padding:"4px 8px",
+      display:"flex",flexWrap:"nowrap",gap:1,alignItems:"center",
+      overflowX:"auto",WebkitOverflowScrolling:"touch",msOverflowStyle:"none",scrollbarWidth:"none"}}>
+      {/* Undo / Redo */}
+      <button style={B} onMouseDown={e=>{e.preventDefault();document.execCommand('undo',false,null);emit();updAf();}} title="Undo (⌘Z)">↩</button>
+      <button style={B} onMouseDown={e=>{e.preventDefault();document.execCommand('redo',false,null);emit();updAf();}} title="Redo (⌘⇧Z)">↪</button>
+      <Sep/>
+      {/* Font size */}
+      <select value={selFontSize} onMouseDown={()=>saveRange()}
+        onChange={e=>{applyFontSize(parseInt(e.target.value));}}
+        style={{...IS,minWidth:52}}>
+        {FSIZES.map(s=><option key={s} value={s}>{s}</option>)}
+      </select>
+      <Sep/>
+      {/* Bold / Italic / Underline / Strike */}
+      <button style={BA('bold',{fontWeight:700,letterSpacing:"-0.03em"})} onMouseDown={e=>{e.preventDefault();exec('bold');}} title="Bold (⌘B)">B</button>
       <button style={BA('italic',{fontStyle:"italic"})} onMouseDown={e=>{e.preventDefault();exec('italic');}} title="Italic (⌘I)"><em>I</em></button>
       <button style={BA('underline',{textDecoration:"underline"})} onMouseDown={e=>{e.preventDefault();exec('underline');}} title="Underline (⌘U)"><u>U</u></button>
       <button style={BA('strikeThrough',{textDecoration:"line-through"})} onMouseDown={e=>{e.preventDefault();exec('strikeThrough');}} title="Strikethrough"><s>S</s></button>
       <Sep/>
-      <button style={{...B,fontFamily:"'DM Serif Display',serif",fontWeight:700,fontSize:"0.88rem"}} onMouseDown={e=>{e.preventDefault();exec('formatBlock','h1');}} title="Heading 1">H1</button>
-      <button style={{...B,fontFamily:"'DM Serif Display',serif",fontWeight:700,fontSize:"0.8rem"}} onMouseDown={e=>{e.preventDefault();exec('formatBlock','h2');}} title="Heading 2">H2</button>
-      <button style={{...B,fontFamily:"'DM Serif Display',serif",fontWeight:600,fontSize:"0.74rem"}} onMouseDown={e=>{e.preventDefault();exec('formatBlock','h3');}} title="Heading 3">H3</button>
-      <button style={{...B,fontSize:"0.7rem"}} onMouseDown={e=>{e.preventDefault();exec('formatBlock','p');}} title="Normal">¶</button>
-      <Sep/>
-      <button style={BA('justifyLeft')} onMouseDown={e=>{e.preventDefault();exec('justifyLeft');}} title="Align left">⬱</button>
-      <button style={BA('justifyCenter')} onMouseDown={e=>{e.preventDefault();exec('justifyCenter');}} title="Center">☰</button>
-      <button style={BA('justifyRight')} onMouseDown={e=>{e.preventDefault();exec('justifyRight');}} title="Align right">⬰</button>
-      <Sep/>
-      <button style={BA('insertUnorderedList',{fontSize:"0.72rem"})} onMouseDown={e=>{e.preventDefault();exec('insertUnorderedList');}} title="Bullets">• ≡</button>
-      <button style={BA('insertOrderedList',{fontSize:"0.72rem"})} onMouseDown={e=>{e.preventDefault();exec('insertOrderedList');}} title="Numbered">1.≡</button>
-      <button style={B} onMouseDown={e=>{e.preventDefault();insertCb();}} title="Checkbox">☑</button>
-      <button style={{...B,fontSize:"0.7rem"}} onMouseDown={e=>{e.preventDefault();exec('insertHorizontalRule');}} title="Divider">——</button>
-      <Sep/>
+      {/* Colors */}
       <TextColorPicker T={T} colors={TC}
-        onSelect={c=>{restoreRange();exec('foreColor',c);}}
-        label={<span style={{borderBottom:"3px solid #f87171",paddingBottom:1}}>A</span>}
+        onSelect={c=>{restoreRange();sty();exec('foreColor',c);}}
+        label={<span style={{borderBottom:"3px solid currentColor",paddingBottom:1,lineHeight:1}}>A</span>}
         title="Text color"/>
       <TextColorPicker T={T} colors={HC}
-        onSelect={c=>{restoreRange();exec('hiliteColor',c==="transparent"?"inherit":c);}}
-        label={<span style={{background:"#fef08a",padding:"0 2px",borderRadius:2}}>H</span>}
+        onSelect={c=>{restoreRange();sty();exec('hiliteColor',c==="transparent"?"inherit":c);}}
+        label={<span style={{background:"#fef08a",padding:"0 3px",borderRadius:2,color:"#555",lineHeight:1.4}}>H</span>}
         title="Highlight"/>
       <Sep/>
+      {/* Text style / headings */}
+      <select defaultValue="" onMouseDown={()=>saveRange()}
+        onChange={e=>{if(e.target.value)exec('formatBlock',e.target.value);e.target.value="";}}
+        style={{...IS,minWidth:80}}>
+        <option value="" disabled>Style ▾</option>
+        <option value="p">Normal</option>
+        <option value="h1">Heading 1</option>
+        <option value="h2">Heading 2</option>
+        <option value="h3">Heading 3</option>
+        <option value="blockquote">Quote</option>
+        <option value="pre">Code</option>
+      </select>
+      <Sep/>
+      {/* Alignment */}
+      <button style={BA('justifyLeft')} onMouseDown={e=>{e.preventDefault();exec('justifyLeft');}} title="Align left">
+        <svg width="13" height="11" viewBox="0 0 13 11" fill="currentColor"><rect y="0" width="13" height="1.5" rx="0.75"/><rect y="3.5" width="9" height="1.5" rx="0.75"/><rect y="7" width="13" height="1.5" rx="0.75"/><rect y="10.5" width="7" height="1.5" rx="0.75" opacity="0" style={{opacity:0}}/></svg>
+      </button>
+      <button style={BA('justifyCenter')} onMouseDown={e=>{e.preventDefault();exec('justifyCenter');}} title="Center">
+        <svg width="13" height="11" viewBox="0 0 13 11" fill="currentColor"><rect y="0" width="13" height="1.5" rx="0.75"/><rect x="2" y="3.5" width="9" height="1.5" rx="0.75"/><rect y="7" width="13" height="1.5" rx="0.75"/></svg>
+      </button>
+      <button style={BA('justifyRight')} onMouseDown={e=>{e.preventDefault();exec('justifyRight');}} title="Align right">
+        <svg width="13" height="11" viewBox="0 0 13 11" fill="currentColor"><rect y="0" width="13" height="1.5" rx="0.75"/><rect x="4" y="3.5" width="9" height="1.5" rx="0.75"/><rect y="7" width="13" height="1.5" rx="0.75"/></svg>
+      </button>
+      <Sep/>
+      {/* Lists + indent */}
+      <button style={BA('insertUnorderedList',{fontSize:"0.72rem"})} onMouseDown={e=>{e.preventDefault();exec('insertUnorderedList');}} title="Bullet list">• ≡</button>
+      <button style={BA('insertOrderedList',{fontSize:"0.72rem"})} onMouseDown={e=>{e.preventDefault();exec('insertOrderedList');}} title="Numbered list">1.≡</button>
+      <button style={{...B,fontSize:"0.72rem"}} onMouseDown={e=>{e.preventDefault();exec('indent');}} title="Indent (Tab)">⇥</button>
+      <button style={{...B,fontSize:"0.72rem"}} onMouseDown={e=>{e.preventDefault();exec('outdent');}} title="Outdent">⇤</button>
+      <button style={B} onMouseDown={e=>{e.preventDefault();insertCb();}} title="Checkbox">☑</button>
+      <Sep/>
+      {/* Insert */}
       <button style={B} onMouseDown={e=>{e.preventDefault();saveRange();setShowLink(p=>!p);}} title="Link (⌘K)">🔗</button>
       <button style={B} onMouseDown={e=>{e.preventDefault();saveRange();setShowTable(p=>!p);}} title="Table">⊞</button>
+      <button style={{...B,fontSize:"0.7rem"}} onMouseDown={e=>{e.preventDefault();exec('insertHorizontalRule');}} title="Divider">—</button>
       <Sep/>
       <button style={{...B,fontSize:"0.65rem",color:T.t3}} onMouseDown={e=>{e.preventDefault();exec('removeFormat');}} title="Clear formatting">✕fmt</button>
     </div>
     {/* Link dialog */}
-    {showLink&&<div style={{background:T.b2,borderBottom:`1px solid ${T.bd}`,padding:"6px 10px",display:"flex",gap:7,alignItems:"center",flexWrap:"wrap"}}>
-      <span style={{fontFamily:MO,fontSize:"0.5rem",color:T.t2,whiteSpace:"nowrap"}}>Insert link:</span>
+    {showLink&&<div style={{background:T.b2,borderBottom:`1px solid ${T.bd}`,padding:"7px 12px",display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+      <span style={{fontSize:"0.82rem",color:T.t2,whiteSpace:"nowrap"}}>Insert link:</span>
       <input value={linkUrl} onChange={e=>setLinkUrl(e.target.value)} placeholder="https://…" autoFocus
         onKeyDown={e=>e.key==="Enter"&&insertLink()}
-        style={{flex:1,minWidth:140,padding:"4px 8px",borderRadius:4,border:`1px solid ${T.bd}`,
-          background:T.ib,color:T.tx,fontSize:"0.82rem",outline:"none",fontFamily:"'DM Sans',sans-serif"}}/>
-      <button onClick={insertLink} style={{...B,background:T.ac,color:T.bg,border:"none",padding:"4px 12px",height:"auto"}}>Insert</button>
-      <button onClick={()=>{setShowLink(false);setLinkUrl("");}} style={B}>✕</button>
+        style={{flex:1,minWidth:140,padding:"5px 9px",borderRadius:5,border:`1px solid ${T.bd}`,
+          background:T.ib,color:T.tx,fontSize:"0.85rem",outline:"none",fontFamily:"'DM Sans',sans-serif"}}/>
+      <button onClick={insertLink} style={{padding:"5px 14px",borderRadius:5,border:"none",background:T.ac,color:T.bg,fontSize:"0.85rem",cursor:"pointer",fontWeight:600}}>Insert</button>
+      <button onClick={()=>{setShowLink(false);setLinkUrl("");}} style={{padding:"5px 9px",borderRadius:5,border:`1px solid ${T.bd}`,background:"transparent",color:T.t2,fontSize:"0.85rem",cursor:"pointer"}}>✕</button>
     </div>}
     {/* Table dialog */}
-    {showTable&&<div style={{background:T.b2,borderBottom:`1px solid ${T.bd}`,padding:"6px 10px",display:"flex",gap:7,alignItems:"center",flexWrap:"wrap"}}>
-      <span style={{fontFamily:MO,fontSize:"0.5rem",color:T.t2}}>Table:</span>
+    {showTable&&<div style={{background:T.b2,borderBottom:`1px solid ${T.bd}`,padding:"7px 12px",display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+      <span style={{fontSize:"0.82rem",color:T.t2}}>Insert table:</span>
       <input type="number" value={tRows} onChange={e=>setTRows(+e.target.value)} min={1} max={20}
-        style={{width:48,padding:"4px 6px",borderRadius:4,border:`1px solid ${T.bd}`,background:T.ib,color:T.tx,fontSize:"0.82rem",outline:"none"}}/>
-      <span style={{fontFamily:MO,fontSize:"0.48rem",color:T.t3}}>rows ×</span>
+        style={{width:50,padding:"5px 7px",borderRadius:5,border:`1px solid ${T.bd}`,background:T.ib,color:T.tx,fontSize:"0.85rem",outline:"none"}}/>
+      <span style={{fontSize:"0.82rem",color:T.t3}}>rows ×</span>
       <input type="number" value={tCols} onChange={e=>setTCols(+e.target.value)} min={1} max={10}
-        style={{width:48,padding:"4px 6px",borderRadius:4,border:`1px solid ${T.bd}`,background:T.ib,color:T.tx,fontSize:"0.82rem",outline:"none"}}/>
-      <span style={{fontFamily:MO,fontSize:"0.48rem",color:T.t3}}>cols</span>
-      <button onClick={insertTable} style={{...B,background:T.ac,color:T.bg,border:"none",padding:"4px 12px",height:"auto"}}>Insert</button>
-      <button onClick={()=>setShowTable(false)} style={B}>✕</button>
+        style={{width:50,padding:"5px 7px",borderRadius:5,border:`1px solid ${T.bd}`,background:T.ib,color:T.tx,fontSize:"0.85rem",outline:"none"}}/>
+      <span style={{fontSize:"0.82rem",color:T.t3}}>cols</span>
+      <button onClick={insertTable} style={{padding:"5px 14px",borderRadius:5,border:"none",background:T.ac,color:T.bg,fontSize:"0.85rem",cursor:"pointer",fontWeight:600}}>Insert</button>
+      <button onClick={()=>setShowTable(false)} style={{padding:"5px 9px",borderRadius:5,border:`1px solid ${T.bd}`,background:"transparent",color:T.t2,fontSize:"0.85rem",cursor:"pointer"}}>✕</button>
     </div>}
-    {/* Editor */}
+    {/* Editor area */}
     <div className="rte-wrap" ref={editorRef}
       contentEditable suppressContentEditableWarning
       data-placeholder={placeholder||"Start writing…"}
@@ -3261,8 +3351,9 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
       onKeyDown={handleEditorKeyDown}
       onMouseDown={handleEditorMouseDown}
       onMouseMove={handleEditorMouseMove}
-      style={{flex:1,minHeight:minHeight||300,padding:"14px 18px",color:T.tx,
-        fontSize:"0.92rem",lineHeight:1.8,outline:"none",
+      onFocus={sty}
+      style={{flex:1,minHeight:minHeight||300,padding:"18px 22px",color:T.tx,
+        fontSize:"0.94rem",lineHeight:1.85,outline:"none",
         fontFamily:"'DM Sans',sans-serif",overflowY:"auto",
         boxSizing:"border-box",cursor:"text",wordBreak:"break-word"}}/>
   </div>;
@@ -5981,31 +6072,24 @@ function TasksDashboard({T,MO,SE,tasks,cats,courses,aT,uT,dT,tT,pushUndo}){
 
 // ═══ NOTES DASHBOARD ═══
 function NotesDashboard({T,MO,SE,quickNotes,setQuickNotes,journalEntries,setJournalEntries}){
-  // ── Tabs / mode ──
-  const[journalTab,setJournalTab]=useState("write"); // "write" | "browse"
-  const[journalMode,setJournalMode]=useState("daily"); // "daily" | "weekly"
-  // ── Daily state ──
+  const[journalTab,setJournalTab]=useState("write");
+  const[journalMode,setJournalMode]=useState("daily");
   const[journalDate,setJournalDate]=useState($d(new Date()));
-  // ── Weekly state ──
   const getMonday=(ds)=>{const d=$p(ds);const day=d.getDay();const diff=day===0?-6:1-day;const m=new Date(d);m.setDate(d.getDate()+diff);return $d(m);};
   const[weekStart,setWeekStart]=useState(()=>getMonday($d(new Date())));
-  // ── Editor html ──
   const[editorHtml,setEditorHtml]=useState("");
-  // ── Browse ──
   const[browseSel,setBrowseSel]=useState(null);
-  const[browseFilter,setBrowseFilter]=useState("all"); // "all"|"daily"|"weekly"
-  // ── Notes ──
+  const[browseFilter,setBrowseFilter]=useState("all");
   const[notesSaved,setNotesSaved]=useState(false);
   const saveTimerRef=useRef(null);
+  // Responsive: re-check on mount only (single-page app, no resize tracking needed)
+  const[vw,setVw]=useState(window.innerWidth);
+  useEffect(()=>{const h=()=>setVw(window.innerWidth);window.addEventListener("resize",h);return()=>window.removeEventListener("resize",h);},[]);
+  const isMobile=vw<768;
 
-  // Current entry key
   const entryKey=journalMode==="daily"?journalDate:weekStart;
   const entryType=journalMode==="daily"?"daily":"weekly";
-
-  // Find current entry (support old entries without type)
   const findEntry=(key,type)=>(journalEntries||[]).find(e=>e.date===key&&(e.type===type||(type==="daily"&&!e.type)));
-
-  // Load editor content when key/mode changes — the RichTextEditor remounts via key prop
   const currentEntry=findEntry(entryKey,entryType);
   const initialContent=currentEntry?.content||currentEntry?.text||"";
 
@@ -6052,188 +6136,200 @@ function NotesDashboard({T,MO,SE,quickNotes,setQuickNotes,journalEntries,setJour
     setBrowseSel(null);
   };
 
-  // Week label helper
   const weekLabel=(ms)=>{const s=$p(ms),e=$a(s,6);return `${s.toLocaleDateString("en-US",{month:"short",day:"numeric"})} – ${e.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}`;};
-
   const todayStr=$d(new Date());
-  const isMobile=window.innerWidth<768;
-
-  // All entries sorted newest first, filtered
   const allEntries=[...(journalEntries||[])].sort((a,b)=>b.date.localeCompare(a.date));
   const filteredEntries=browseFilter==="all"?allEntries
     :browseFilter==="weekly"?allEntries.filter(e=>e.type==="weekly")
     :allEntries.filter(e=>e.type==="daily"||!e.type);
 
-  const IS3={width:"100%",padding:"12px 14px",borderRadius:7,border:`1px solid ${T.bd}`,
-    background:T.ib,color:T.tx,fontSize:"0.9rem",fontFamily:"'DM Sans',sans-serif",
-    resize:"vertical",lineHeight:1.7,outline:"none",boxSizing:"border-box"};
-  const BtnSm={padding:"4px 10px",borderRadius:5,border:`1px solid ${T.bd}`,background:"transparent",
-    color:T.t2,cursor:"pointer",fontFamily:MO,fontSize:"0.52rem"};
+  const NavBtn={padding:"5px 12px",borderRadius:6,border:`1px solid ${T.bd}`,background:"transparent",
+    color:T.t2,cursor:"pointer",fontFamily:MO,fontSize:"0.54rem",whiteSpace:"nowrap"};
+  const SegBtn=(active)=>({padding:"5px 14px",border:"none",cursor:"pointer",fontFamily:MO,
+    fontSize:"0.54rem",background:active?T.ac:"transparent",color:active?T.bg:T.t3,
+    transition:"background 0.15s,color 0.15s"});
 
-  return <div style={{flex:1,overflow:"auto",padding:isMobile?"14px 12px 40px":"28px 32px 48px",background:T.bg,boxSizing:"border-box"}}>
-    <div style={{maxWidth:1200,margin:"0 auto"}}>
+  return <div style={{flex:1,overflow:"auto",padding:isMobile?"12px 10px 48px":"28px 32px 56px",background:T.bg,boxSizing:"border-box"}}>
+    <div style={{maxWidth:1240,margin:"0 auto"}}>
 
-      {/* Header */}
-      <div style={{marginBottom:22}}>
+      {/* Page header */}
+      <div style={{marginBottom:24}}>
         <h2 style={{fontFamily:SE,fontSize:"2rem",fontWeight:400,margin:0,color:T.tx,letterSpacing:"-0.02em"}}>
           Notes<span style={{color:T.ac,fontStyle:"italic"}}> &amp; Journal</span>
         </h2>
-        <div style={{fontFamily:MO,fontSize:"0.58rem",color:T.t2,letterSpacing:"0.05em",marginTop:4}}>
-          Quick notes auto-save · Rich text journal syncs across devices
+        <div style={{fontFamily:MO,fontSize:"0.56rem",color:T.t2,letterSpacing:"0.04em",marginTop:5}}>
+          Quick notes auto-save · Journal entries sync across devices
         </div>
       </div>
 
-      <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:20,alignItems:"start"}}>
+      <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:22,alignItems:"start"}}>
 
-        {/* LEFT: Quick Notes */}
-        <div style={{background:T.b3,border:`1px solid ${T.bd}`,borderRadius:12,padding:"20px 22px"}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-            <div style={{fontFamily:MO,fontSize:"0.56rem",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.08em",color:T.t2}}>Quick Notes</div>
-            <span style={{fontFamily:MO,fontSize:"0.5rem",color:T.t3,opacity:notesSaved?1:0,transition:"opacity 0.3s"}}>Saved ✓</span>
+        {/* ── LEFT: Quick Notes ── */}
+        <div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+            <span style={{fontFamily:MO,fontSize:"0.58rem",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",color:T.t2}}>Quick Notes</span>
+            <span style={{fontFamily:MO,fontSize:"0.5rem",color:T.ac,opacity:notesSaved?1:0,transition:"opacity 0.4s"}}>✓ Saved</span>
           </div>
-          <RichTextEditor key="quick-notes-rte" initialValue={quickNotes||""}
-            onChange={handleNotesChange} T={T} MO={MO}
-            placeholder="Ideas, reminders, links, scratch space…"
-            minHeight={isMobile?180:440}/>
-          <div style={{fontFamily:MO,fontSize:"0.46rem",color:T.t3,marginTop:8}}>Auto-saves as you type · Synced to your account</div>
+          {/* Document-style card */}
+          <div style={{background:T.b3,border:`1px solid ${T.bd}`,borderRadius:10,overflow:"hidden",
+            boxShadow:"0 2px 12px rgba(0,0,0,0.07)"}}>
+            <RichTextEditor key="quick-notes-rte" initialValue={quickNotes||""}
+              onChange={handleNotesChange} T={T} MO={MO}
+              placeholder="Ideas, reminders, links, scratch space…"
+              minHeight={isMobile?200:460}/>
+          </div>
+          <div style={{fontFamily:MO,fontSize:"0.46rem",color:T.t3,marginTop:7,textAlign:"right"}}>
+            Auto-saves · Synced to your account
+          </div>
         </div>
 
-        {/* RIGHT: Journal */}
+        {/* ── RIGHT: Journal ── */}
         <div>
-          {/* Journal header row */}
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14,flexWrap:"wrap",gap:8}}>
+          {/* Journal top bar */}
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10,flexWrap:"wrap",gap:8}}>
             <h3 style={{fontFamily:SE,fontSize:"1.4rem",fontWeight:400,margin:0,color:T.tx}}>
               Journal<span style={{color:T.ac,fontStyle:"italic"}}> Entries</span>
             </h3>
             <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
-              {/* Daily / Weekly mode toggle */}
-              <div style={{display:"flex",background:T.b2,border:`1px solid ${T.bd}`,borderRadius:6,overflow:"hidden"}}>
+              <div style={{display:"flex",background:T.b2,border:`1px solid ${T.bd}`,borderRadius:7,overflow:"hidden"}}>
                 {[["daily","Daily"],["weekly","Weekly"]].map(([k,l])=>
                   <button key={k} onClick={()=>{setJournalMode(k);setJournalTab("write");setBrowseSel(null);}}
-                    style={{padding:"4px 12px",border:"none",cursor:"pointer",fontFamily:MO,fontSize:"0.52rem",
-                      background:journalMode===k?T.ac:"transparent",color:journalMode===k?T.bg:T.t3}}>{l}</button>)}
+                    style={SegBtn(journalMode===k)}>{l}</button>)}
               </div>
-              {/* Write / Browse tab */}
-              <div style={{display:"flex",background:T.b3,border:`1px solid ${T.bd}`,borderRadius:6,overflow:"hidden"}}>
+              <div style={{display:"flex",background:T.b3,border:`1px solid ${T.bd}`,borderRadius:7,overflow:"hidden"}}>
                 {[["write","Write"],["browse",`Browse (${allEntries.length})`]].map(([k,l])=>
                   <button key={k} onClick={()=>{setJournalTab(k);setBrowseSel(null);}}
-                    style={{padding:"4px 13px",border:"none",cursor:"pointer",fontFamily:MO,fontSize:"0.52rem",letterSpacing:"0.03em",
-                      background:journalTab===k?T.ac:"transparent",color:journalTab===k?T.bg:T.t3,whiteSpace:"nowrap"}}>{l}</button>)}
+                    style={SegBtn(journalTab===k)}>{l}</button>)}
               </div>
             </div>
           </div>
 
           {/* ── WRITE TAB ── */}
-          {journalTab==="write"&&<div style={{background:T.b3,border:`1px solid ${T.bd}`,borderRadius:12,padding:"18px 20px"}}>
+          {journalTab==="write"&&<div style={{background:T.b3,border:`1px solid ${T.bd}`,borderRadius:10,overflow:"hidden",
+            boxShadow:"0 2px 12px rgba(0,0,0,0.07)"}}>
 
-            {/* Date / Week navigation */}
-            {journalMode==="daily"&&<div style={{display:"flex",alignItems:"center",gap:7,marginBottom:14,flexWrap:"wrap"}}>
-              <span style={{fontFamily:MO,fontSize:"0.52rem",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.08em",color:T.t2}}>Date</span>
-              <input type="date" value={journalDate} onChange={e=>setJournalDate(e.target.value)}
-                style={{padding:"4px 9px",borderRadius:5,border:`1px solid ${T.bd}`,background:T.ib,color:T.tx,fontSize:"0.8rem",fontFamily:MO,outline:"none"}}/>
-              <button onClick={()=>setJournalDate($d($a($p(journalDate),-1)))} style={BtnSm}>‹ Prev</button>
-              <button onClick={()=>setJournalDate(todayStr)} disabled={journalDate===todayStr}
-                style={{...BtnSm,color:journalDate===todayStr?T.t3:T.t2,cursor:journalDate===todayStr?"default":"pointer"}}>Today</button>
-              <button onClick={()=>setJournalDate($d($a($p(journalDate),1)))} disabled={journalDate>=todayStr}
-                style={{...BtnSm,color:journalDate>=todayStr?T.t3:T.t2,cursor:journalDate>=todayStr?"default":"pointer"}}>Next ›</button>
-              <span style={{fontFamily:MO,fontSize:"0.46rem",color:T.t3,marginLeft:"auto"}}>
-                {currentEntry?"✎ editing":"+ new entry"}
-              </span>
-            </div>}
+            {/* Date navigation bar */}
+            <div style={{padding:"10px 16px",borderBottom:`1px solid ${T.bd}`,background:T.b2,
+              display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+              {journalMode==="daily"&&<>
+                <input type="date" value={journalDate} onChange={e=>setJournalDate(e.target.value)}
+                  style={{padding:"4px 9px",borderRadius:5,border:`1px solid ${T.bd}`,background:T.ib,
+                    color:T.tx,fontSize:"0.82rem",fontFamily:"'DM Sans',sans-serif",outline:"none"}}/>
+                <button onClick={()=>setJournalDate($d($a($p(journalDate),-1)))} style={NavBtn}>‹</button>
+                <button onClick={()=>setJournalDate(todayStr)} disabled={journalDate===todayStr}
+                  style={{...NavBtn,color:journalDate===todayStr?T.t3:T.ac,borderColor:journalDate===todayStr?T.bd:T.ac,
+                    cursor:journalDate===todayStr?"default":"pointer"}}>Today</button>
+                <button onClick={()=>setJournalDate($d($a($p(journalDate),1)))} disabled={journalDate>=todayStr}
+                  style={{...NavBtn,color:journalDate>=todayStr?T.t3:T.t2,cursor:journalDate>=todayStr?"default":"pointer"}}>›</button>
+                <span style={{marginLeft:"auto",fontFamily:MO,fontSize:"0.48rem",color:currentEntry?T.ac:T.t3}}>
+                  {currentEntry?"✎ editing":"+ new entry"}
+                </span>
+              </>}
+              {journalMode==="weekly"&&<>
+                <span style={{fontFamily:"'DM Sans',sans-serif",fontSize:"0.84rem",color:T.tx,
+                  padding:"4px 10px",borderRadius:5,border:`1px solid ${T.bd}`,background:T.ib,whiteSpace:"nowrap"}}>
+                  {weekLabel(weekStart)}
+                </span>
+                <button onClick={()=>setWeekStart(getMonday($d($a($p(weekStart),-7))))} style={NavBtn}>‹</button>
+                <button onClick={()=>setWeekStart(getMonday(todayStr))} disabled={weekStart===getMonday(todayStr)}
+                  style={{...NavBtn,color:weekStart===getMonday(todayStr)?T.t3:T.ac,borderColor:weekStart===getMonday(todayStr)?T.bd:T.ac,
+                    cursor:weekStart===getMonday(todayStr)?"default":"pointer"}}>This week</button>
+                <button onClick={()=>setWeekStart(getMonday($d($a($p(weekStart),7))))} disabled={weekStart>=getMonday(todayStr)}
+                  style={{...NavBtn,color:weekStart>=getMonday(todayStr)?T.t3:T.t2,cursor:weekStart>=getMonday(todayStr)?"default":"pointer"}}>›</button>
+                <span style={{marginLeft:"auto",fontFamily:MO,fontSize:"0.48rem",color:currentEntry?T.ac:T.t3}}>
+                  {currentEntry?"✎ editing":"+ new entry"}
+                </span>
+              </>}
+            </div>
 
-            {journalMode==="weekly"&&<div style={{display:"flex",alignItems:"center",gap:7,marginBottom:14,flexWrap:"wrap"}}>
-              <span style={{fontFamily:MO,fontSize:"0.52rem",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.08em",color:T.t2}}>Week</span>
-              <span style={{fontFamily:MO,fontSize:"0.56rem",color:T.tx,padding:"3px 8px",borderRadius:5,border:`1px solid ${T.bd}`,background:T.ib}}>
-                {weekLabel(weekStart)}
-              </span>
-              <button onClick={()=>setWeekStart(getMonday($d($a($p(weekStart),-7))))} style={BtnSm}>‹ Prev</button>
-              <button onClick={()=>setWeekStart(getMonday(todayStr))} disabled={weekStart===getMonday(todayStr)}
-                style={{...BtnSm,color:weekStart===getMonday(todayStr)?T.t3:T.t2,cursor:weekStart===getMonday(todayStr)?"default":"pointer"}}>This week</button>
-              <button onClick={()=>setWeekStart(getMonday($d($a($p(weekStart),7))))} disabled={weekStart>=getMonday(todayStr)}
-                style={{...BtnSm,color:weekStart>=getMonday(todayStr)?T.t3:T.t2,cursor:weekStart>=getMonday(todayStr)?"default":"pointer"}}>Next ›</button>
-              <span style={{fontFamily:MO,fontSize:"0.46rem",color:T.t3,marginLeft:"auto"}}>
-                {currentEntry?"✎ editing":"+ new entry"}
-              </span>
-            </div>}
-
-            {/* Rich text editor — keyed so it remounts on date/mode change */}
+            {/* Editor */}
             <RichTextEditor key={entryKey+entryType} initialValue={initialContent}
               onChange={onEditorChange} T={T} MO={MO}
               placeholder={journalMode==="weekly"
                 ?"How did this week go? Reflect, plan, note wins and challenges…"
                 :"What's on your mind today? Reflect, plan, or just ramble…"}
-              minHeight={isMobile?200:320}/>
+              minHeight={isMobile?220:340}/>
 
-            {/* Save / Delete row */}
-            <div style={{display:"flex",gap:8,justifyContent:"flex-end",alignItems:"center",marginTop:12}}>
+            {/* Footer actions */}
+            <div style={{padding:"10px 16px",borderTop:`1px solid ${T.bd}`,background:T.b2,
+              display:"flex",gap:8,justifyContent:"flex-end",alignItems:"center"}}>
               {currentEntry&&<button onClick={()=>deleteEntry(entryKey,entryType)}
                 style={{padding:"6px 14px",borderRadius:6,border:"1px solid rgba(239,68,68,0.35)",
-                  background:"transparent",color:"#ef4444",cursor:"pointer",fontFamily:MO,fontSize:"0.52rem"}}>Delete Entry</button>}
-              <span style={{fontFamily:MO,fontSize:"0.43rem",color:T.t3,marginRight:4}}>Auto-saves · </span>
+                  background:"transparent",color:"#ef4444",cursor:"pointer",fontFamily:MO,fontSize:"0.54rem"}}>Delete</button>}
+              <span style={{fontFamily:MO,fontSize:"0.46rem",color:T.t3}}>Auto-saves</span>
               <button onClick={saveEntry}
-                style={{padding:"6px 22px",borderRadius:6,border:"none",background:T.ac,
-                  color:T.bg,cursor:"pointer",fontFamily:MO,fontSize:"0.58rem",fontWeight:600}}>Save Entry</button>
+                style={{padding:"7px 22px",borderRadius:6,border:"none",background:T.ac,
+                  color:T.bg,cursor:"pointer",fontFamily:MO,fontSize:"0.6rem",fontWeight:700,
+                  boxShadow:"0 2px 8px rgba(0,0,0,0.12)"}}>Save Entry</button>
             </div>
           </div>}
 
           {/* ── BROWSE TAB ── */}
           {journalTab==="browse"&&<div>
-            {/* Filter */}
-            <div style={{display:"flex",gap:5,marginBottom:12,alignItems:"center"}}>
-              <span style={{fontFamily:MO,fontSize:"0.48rem",color:T.t3,marginRight:4}}>Show:</span>
+            <div style={{display:"flex",gap:6,marginBottom:14,alignItems:"center",flexWrap:"wrap"}}>
+              <span style={{fontFamily:MO,fontSize:"0.5rem",color:T.t3}}>Show:</span>
               {[["all","All"],["daily","Daily"],["weekly","Weekly"]].map(([k,l])=>
                 <button key={k} onClick={()=>setBrowseFilter(k)}
-                  style={{padding:"3px 10px",borderRadius:12,border:`1px solid ${browseFilter===k?T.ac:T.bd}`,
+                  style={{padding:"4px 12px",borderRadius:14,border:`1px solid ${browseFilter===k?T.ac:T.bd}`,
                     background:browseFilter===k?`${T.ac}18`:"transparent",
-                    color:browseFilter===k?T.ac:T.t3,cursor:"pointer",fontFamily:MO,fontSize:"0.48rem"}}>{l}</button>)}
+                    color:browseFilter===k?T.ac:T.t3,cursor:"pointer",fontFamily:MO,fontSize:"0.5rem",
+                    transition:"all 0.15s"}}>{l}</button>)}
             </div>
-            {filteredEntries.length===0&&<div style={{textAlign:"center",padding:"56px 0",fontFamily:MO,fontSize:"0.62rem",color:T.t3,letterSpacing:"0.06em"}}>
-              No entries yet. Switch to Write to add your first entry.
+            {filteredEntries.length===0&&<div style={{textAlign:"center",padding:"60px 0",fontFamily:MO,
+              fontSize:"0.62rem",color:T.t3,letterSpacing:"0.06em"}}>
+              No entries yet — switch to Write to start journaling.
             </div>}
-            <div style={{display:"flex",flexDirection:"column",gap:9}}>
+            <div style={{display:"flex",flexDirection:"column",gap:8}}>
               {filteredEntries.map(entry=>{
                 const isSel=browseSel===entry.id;
                 const isWeekly=entry.type==="weekly";
                 const rawLabel=isWeekly?weekLabel(entry.date):$p(entry.date).toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric",year:"numeric"});
                 const isToday=entry.date===todayStr;
-                // Strip HTML for preview
                 const previewText=(entry.content||entry.text||"").replace(/<[^>]+>/g," ").replace(/\s+/g," ").trim();
                 return <div key={entry.id}
                   style={{background:T.b3,border:`1px solid ${isSel?T.ac:T.bd}`,borderRadius:10,
-                    overflow:"hidden",transition:"border-color 0.15s"}}>
+                    overflow:"hidden",transition:"border-color 0.15s",
+                    boxShadow:isSel?`0 0 0 2px ${T.ac}22`:"none"}}>
                   <div onClick={()=>setBrowseSel(isSel?null:entry.id)}
                     style={{display:"flex",alignItems:"center",justifyContent:"space-between",
-                      padding:"12px 15px",background:isSel?`${T.ac}10`:T.b2,cursor:"pointer"}}>
+                      padding:"12px 16px",background:isSel?`${T.ac}0d`:T.b2,cursor:"pointer",
+                      transition:"background 0.15s"}}>
                     <div style={{flex:1,minWidth:0}}>
-                      <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:isSel?0:3}}>
-                        <span style={{fontFamily:MO,fontSize:"0.6rem",fontWeight:600,color:isSel?T.ac:T.tx,letterSpacing:"0.03em"}}>{rawLabel}</span>
-                        {isWeekly&&<span style={{fontFamily:MO,fontSize:"0.42rem",padding:"1px 5px",borderRadius:7,background:`${T.ac}20`,color:T.ac}}>weekly</span>}
-                        {isToday&&<span style={{fontFamily:MO,fontSize:"0.42rem",padding:"1px 5px",borderRadius:7,background:`${T.ac}18`,color:T.ac}}>today</span>}
+                      <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:isSel?0:4}}>
+                        <span style={{fontFamily:"'DM Sans',sans-serif",fontSize:"0.88rem",fontWeight:600,
+                          color:isSel?T.ac:T.tx}}>{rawLabel}</span>
+                        {isWeekly&&<span style={{fontFamily:MO,fontSize:"0.43rem",padding:"2px 6px",borderRadius:8,
+                          background:`${T.ac}20`,color:T.ac}}>weekly</span>}
+                        {isToday&&<span style={{fontFamily:MO,fontSize:"0.43rem",padding:"2px 6px",borderRadius:8,
+                          background:`${T.ac}18`,color:T.ac}}>today</span>}
                       </div>
-                      {!isSel&&<div style={{fontFamily:"'DM Sans',sans-serif",fontSize:"0.8rem",color:T.t3,
+                      {!isSel&&<div style={{fontFamily:"'DM Sans',sans-serif",fontSize:"0.82rem",color:T.t3,
                         overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:"90%"}}>
-                        {previewText.slice(0,150)}{previewText.length>150?"…":""}
+                        {previewText.slice(0,160)}{previewText.length>160?"…":""}
                       </div>}
                     </div>
-                    <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0,marginLeft:10}}>
+                    <div style={{display:"flex",alignItems:"center",gap:7,flexShrink:0,marginLeft:12}}>
                       <button onClick={e=>{e.stopPropagation();
                         if(isWeekly){setJournalMode("weekly");setWeekStart(entry.date);}
                         else{setJournalMode("daily");setJournalDate(entry.date);}
                         setJournalTab("write");}}
-                        style={{padding:"3px 10px",borderRadius:5,border:`1px solid ${T.bd}`,background:"transparent",
-                          color:T.t2,cursor:"pointer",fontFamily:MO,fontSize:"0.48rem"}}>Edit</button>
-                      <span style={{color:T.t3,fontSize:"0.82rem",userSelect:"none"}}>{isSel?"▴":"▾"}</span>
+                        style={{padding:"4px 12px",borderRadius:5,border:`1px solid ${T.bd}`,background:"transparent",
+                          color:T.t2,cursor:"pointer",fontFamily:MO,fontSize:"0.5rem"}}>Edit</button>
+                      <span style={{color:T.t3,fontSize:"0.78rem",userSelect:"none"}}>{isSel?"▴":"▾"}</span>
                     </div>
                   </div>
-                  {isSel&&<div style={{padding:"16px 18px",borderTop:`1px solid ${T.bd}`}}>
+                  {isSel&&<div style={{padding:"18px 20px",borderTop:`1px solid ${T.bd}`}}>
                     {entry.content
-                      ?<div className="rte-wrap" style={{fontSize:"0.9rem",color:T.tx,lineHeight:1.8,fontFamily:"'DM Sans',sans-serif"}}
+                      ?<div className="rte-wrap" style={{fontSize:"0.92rem",color:T.tx,lineHeight:1.85,
+                          fontFamily:"'DM Sans',sans-serif"}}
                           dangerouslySetInnerHTML={{__html:entry.content}}/>
-                      :<div style={{fontFamily:"'DM Sans',sans-serif",fontSize:"0.9rem",color:T.tx,lineHeight:1.8,whiteSpace:"pre-wrap"}}>{entry.text}</div>}
-                    <div style={{marginTop:12,display:"flex",justifyContent:"flex-end"}}>
+                      :<div style={{fontFamily:"'DM Sans',sans-serif",fontSize:"0.92rem",color:T.tx,
+                          lineHeight:1.85,whiteSpace:"pre-wrap"}}>{entry.text}</div>}
+                    <div style={{marginTop:14,display:"flex",justifyContent:"flex-end"}}>
                       <button onClick={()=>deleteEntry(entry.date,entry.type||"daily")}
-                        style={{padding:"4px 13px",borderRadius:5,border:"1px solid rgba(239,68,68,0.35)",
-                          background:"transparent",color:"#ef4444",cursor:"pointer",fontFamily:MO,fontSize:"0.48rem"}}>Delete</button>
+                        style={{padding:"5px 14px",borderRadius:6,border:"1px solid rgba(239,68,68,0.35)",
+                          background:"transparent",color:"#ef4444",cursor:"pointer",fontFamily:MO,
+                          fontSize:"0.5rem"}}>Delete Entry</button>
                     </div>
                   </div>}
                 </div>;
