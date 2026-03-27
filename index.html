@@ -3395,7 +3395,7 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
     }
   };
 
-  return <div style={{border:`1px solid ${T.bd}`,borderRadius:8,overflow:"hidden",display:"flex",flexDirection:"column",boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
+  return <div style={{border:`1px solid ${T.bd}`,borderRadius:8,overflow:"hidden",display:"flex",flexDirection:"column",boxShadow:"0 2px 8px rgba(0,0,0,0.06)",flex:1,minHeight:0}}>
     {/* Toolbar — nowrap + overflow-x:auto makes it scrollable on mobile */}
     <div className="rte-tb" style={{background:T.b2,borderBottom:`1px solid ${T.bd}`,padding:"4px 8px",
       display:"flex",flexWrap:"nowrap",gap:1,alignItems:"center",
@@ -6280,6 +6280,7 @@ function TasksDashboard({T,MO,SE,tasks,cats,courses,aT,uT,dT,tT,pushUndo}){
 
 // ═══ NOTES DASHBOARD ═══
 function NotesDashboard({T,MO,SE,quickNotes,setQuickNotes,journalEntries,setJournalEntries}){
+  const[notesTab,setNotesTab]=useState("notes");
   const[journalTab,setJournalTab]=useState("write");
   const[journalMode,setJournalMode]=useState("daily");
   const[journalDate,setJournalDate]=useState($d(new Date()));
@@ -6357,60 +6358,55 @@ function NotesDashboard({T,MO,SE,quickNotes,setQuickNotes,journalEntries,setJour
     fontSize:"0.54rem",background:active?T.ac:"transparent",color:active?T.bg:T.t3,
     transition:"background 0.15s,color 0.15s"});
 
-  return <div style={{flex:1,overflow:"auto",padding:isMobile?"12px 10px 48px":"28px 32px 56px",background:T.bg,boxSizing:"border-box"}}>
-    <div style={{maxWidth:1240,margin:"0 auto"}}>
+  return <div style={{flex:1,overflow:"auto",padding:isMobile?"0":"0",background:T.bg,
+    boxSizing:"border-box",display:"flex",flexDirection:"column"}}>
 
-      {/* Page header */}
-      <div style={{marginBottom:24}}>
-        <h2 style={{fontFamily:SE,fontSize:"2rem",fontWeight:400,margin:0,color:T.tx,letterSpacing:"-0.02em"}}>
-          Notes<span style={{color:T.ac,fontStyle:"italic"}}> &amp; Journal</span>
-        </h2>
-        <div style={{fontFamily:MO,fontSize:"0.56rem",color:T.t2,letterSpacing:"0.04em",marginTop:5}}>
-          Quick notes auto-save · Journal entries sync across devices
-        </div>
+    {/* ── Tab toggle bar ── */}
+    <div style={{borderBottom:`1px solid ${T.bd}`,background:T.b2,padding:"0 16px",
+      display:"flex",alignItems:"center",gap:0,flexShrink:0}}>
+      {[["notes","Quick Notes"],["journal","Journal"]].map(([k,l])=>
+        <button key={k} onClick={()=>setNotesTab(k)}
+          style={{padding:"12px 20px",border:"none",background:"transparent",
+            cursor:"pointer",fontFamily:MO,fontSize:"0.58rem",fontWeight:700,
+            color:notesTab===k?T.ac:T.t3,
+            borderBottom:notesTab===k?`2px solid ${T.ac}`:"2px solid transparent",
+            transition:"color 0.15s,border-color 0.15s",letterSpacing:"0.04em",
+            textTransform:"uppercase"}}>
+          {l}
+          {k==="notes"&&notesSaved&&<span style={{marginLeft:6,fontSize:"0.45rem",color:T.ac,opacity:1}}>✓</span>}
+        </button>)}
+      <div style={{marginLeft:"auto",padding:"0 4px"}}>
+        <span style={{fontFamily:MO,fontSize:"0.46rem",color:T.t3}}>
+          {notesTab==="notes"?"Auto-saves":`${allEntries.length} entr${allEntries.length===1?"y":"ies"}`}
+        </span>
       </div>
+    </div>
 
-      <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:22,alignItems:"start"}}>
+    {/* ── Quick Notes panel ── */}
+    {notesTab==="notes"&&<div style={{flex:1,overflow:"hidden",display:"flex",flexDirection:"column"}}>
+      <RichTextEditor key="quick-notes-rte" initialValue={quickNotes||""}
+        onChange={handleNotesChange} T={T} MO={MO}
+        placeholder="Ideas, reminders, links, scratch space…"
+        minHeight={isMobile?300:500}/>
+    </div>}
 
-        {/* ── LEFT: Quick Notes ── */}
-        <div>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-            <span style={{fontFamily:MO,fontSize:"0.58rem",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",color:T.t2}}>Quick Notes</span>
-            <span style={{fontFamily:MO,fontSize:"0.5rem",color:T.ac,opacity:notesSaved?1:0,transition:"opacity 0.4s"}}>✓ Saved</span>
+    {/* ── Journal panel ── */}
+    {notesTab==="journal"&&<div style={{flex:1,overflow:"auto",padding:isMobile?"10px 10px 48px":"20px 24px 56px",boxSizing:"border-box"}}>
+      <div style={{maxWidth:860,margin:"0 auto"}}>
+
+        {/* Journal top bar */}
+        <div style={{display:"flex",alignItems:"center",justifyContent:"flex-end",marginBottom:14,flexWrap:"wrap",gap:8}}>
+          <div style={{display:"flex",background:T.b2,border:`1px solid ${T.bd}`,borderRadius:7,overflow:"hidden"}}>
+            {[["daily","Daily"],["weekly","Weekly"]].map(([k,l])=>
+              <button key={k} onClick={()=>{setJournalMode(k);setJournalTab("write");setBrowseSel(null);}}
+                style={SegBtn(journalMode===k)}>{l}</button>)}
           </div>
-          {/* Document-style card */}
-          <div style={{background:T.b3,border:`1px solid ${T.bd}`,borderRadius:10,overflow:"hidden",
-            boxShadow:"0 2px 12px rgba(0,0,0,0.07)"}}>
-            <RichTextEditor key="quick-notes-rte" initialValue={quickNotes||""}
-              onChange={handleNotesChange} T={T} MO={MO}
-              placeholder="Ideas, reminders, links, scratch space…"
-              minHeight={isMobile?200:460}/>
-          </div>
-          <div style={{fontFamily:MO,fontSize:"0.46rem",color:T.t3,marginTop:7,textAlign:"right"}}>
-            Auto-saves · Synced to your account
+          <div style={{display:"flex",background:T.b3,border:`1px solid ${T.bd}`,borderRadius:7,overflow:"hidden"}}>
+            {[["write","Write"],["browse",`Browse (${allEntries.length})`]].map(([k,l])=>
+              <button key={k} onClick={()=>{setJournalTab(k);setBrowseSel(null);}}
+                style={SegBtn(journalTab===k)}>{l}</button>)}
           </div>
         </div>
-
-        {/* ── RIGHT: Journal ── */}
-        <div>
-          {/* Journal top bar */}
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10,flexWrap:"wrap",gap:8}}>
-            <h3 style={{fontFamily:SE,fontSize:"1.4rem",fontWeight:400,margin:0,color:T.tx}}>
-              Journal<span style={{color:T.ac,fontStyle:"italic"}}> Entries</span>
-            </h3>
-            <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
-              <div style={{display:"flex",background:T.b2,border:`1px solid ${T.bd}`,borderRadius:7,overflow:"hidden"}}>
-                {[["daily","Daily"],["weekly","Weekly"]].map(([k,l])=>
-                  <button key={k} onClick={()=>{setJournalMode(k);setJournalTab("write");setBrowseSel(null);}}
-                    style={SegBtn(journalMode===k)}>{l}</button>)}
-              </div>
-              <div style={{display:"flex",background:T.b3,border:`1px solid ${T.bd}`,borderRadius:7,overflow:"hidden"}}>
-                {[["write","Write"],["browse",`Browse (${allEntries.length})`]].map(([k,l])=>
-                  <button key={k} onClick={()=>{setJournalTab(k);setBrowseSel(null);}}
-                    style={SegBtn(journalTab===k)}>{l}</button>)}
-              </div>
-            </div>
-          </div>
 
           {/* ── WRITE TAB ── */}
           {journalTab==="write"&&<div style={{background:T.b3,border:`1px solid ${T.bd}`,borderRadius:10,overflow:"hidden",
@@ -6544,10 +6540,9 @@ function NotesDashboard({T,MO,SE,quickNotes,setQuickNotes,journalEntries,setJour
               })}
             </div>
           </div>}
-        </div>
 
       </div>
-    </div>
+    </div>}
   </div>;
 }
 
