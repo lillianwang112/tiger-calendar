@@ -3292,6 +3292,7 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
     const cbInput=document.createElement('input');
     cbInput.type='checkbox';cbInput.style.cssText='width:15px;height:15px;margin-top:4px;cursor:pointer;flex-shrink:0';
     const cbSpan=document.createElement('span');
+    cbSpan.style.cssText='display:inline-block;min-height:1.7em;flex:1';
     if(inner)cbSpan.innerHTML=inner;
     cbDiv.appendChild(cbInput);cbDiv.appendChild(cbSpan);
     if(nd&&nd!==editorRef.current){
@@ -3312,8 +3313,8 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
     const lt=lastText(cbSpan);
     if(lt){r.setStart(lt,lt.length);r.collapse(true);}
     else{
-      const tn=document.createTextNode('');cbSpan.appendChild(tn);
-      r.setStart(tn,0);r.collapse(true);
+      r.selectNodeContents(cbSpan);
+      r.collapse(true);
     }
     sel.removeAllRanges();sel.addRange(r);
     emit();
@@ -3398,44 +3399,31 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
             const isEmpty=!sp||!sp.textContent.trim();
             if(e.key==="Enter"){
               e.preventDefault();
-              if(isEmpty){
-                // Exit to normal paragraph
-                const p=document.createElement('p');p.innerHTML='<br>';
-                nd.parentNode.insertBefore(p,nd.nextSibling);
-                nd.parentNode.removeChild(nd);
-                editorRef.current.focus();
-                const r=document.createRange();r.setStart(p,0);r.collapse(true);
-                sel.removeAllRanges();sel.addRange(r);
-              } else {
-                // Split span at cursor using direct range — only if cursor is inside sp
-                let afterHTML='';
-                if(sp&&sp.contains(range.startContainer)){
-                  const splitRange=document.createRange();
-                  splitRange.setStart(range.startContainer,range.startOffset);
-                  splitRange.setEnd(sp,sp.childNodes.length);
-                  const tmp=document.createElement('div');
-                  tmp.appendChild(splitRange.extractContents());
-                  afterHTML=tmp.innerHTML;
-                }
-                const newInput=document.createElement('input');
-                newInput.type='checkbox';newInput.style.cssText='width:15px;height:15px;margin-top:4px;cursor:pointer;flex-shrink:0';
-                const newSpan=document.createElement('span');
-                if(afterHTML)newSpan.innerHTML=afterHTML;
-                const newDiv=document.createElement('div');
-                newDiv.dataset.cb='1';
-                newDiv.style.cssText='display:flex;align-items:flex-start;gap:6px;margin:3px 0;line-height:1.7';
-                newDiv.appendChild(newInput);newDiv.appendChild(newSpan);
-                nd.parentNode.insertBefore(newDiv,nd.nextSibling);
-                editorRef.current.focus();
-                const r=document.createRange();
-                // Ensure a real text node for cursor — a bare <br> causes isEmpty on next Enter
-                if(!newSpan.firstChild||(newSpan.childNodes.length===1&&newSpan.firstChild.nodeName==='BR')){
-                  while(newSpan.firstChild)newSpan.removeChild(newSpan.firstChild);
-                  const tn=document.createTextNode('');newSpan.appendChild(tn);
-                }
-                r.setStart(newSpan.firstChild,0);r.collapse(true);
-                sel.removeAllRanges();sel.addRange(r);
+              // Split span at cursor using direct range — only if cursor is inside sp
+              let afterHTML='';
+              if(!isEmpty&&sp&&sp.contains(range.startContainer)){
+                const splitRange=document.createRange();
+                splitRange.setStart(range.startContainer,range.startOffset);
+                splitRange.setEnd(sp,sp.childNodes.length);
+                const tmp=document.createElement('div');
+                tmp.appendChild(splitRange.extractContents());
+                afterHTML=tmp.innerHTML;
               }
+              const newInput=document.createElement('input');
+              newInput.type='checkbox';newInput.style.cssText='width:15px;height:15px;margin-top:4px;cursor:pointer;flex-shrink:0';
+              const newSpan=document.createElement('span');
+              newSpan.style.cssText='display:inline-block;min-height:1.7em;flex:1';
+              if(afterHTML)newSpan.innerHTML=afterHTML;
+              const newDiv=document.createElement('div');
+              newDiv.dataset.cb='1';
+              newDiv.style.cssText='display:flex;align-items:flex-start;gap:6px;margin:3px 0;line-height:1.7';
+              newDiv.appendChild(newInput);newDiv.appendChild(newSpan);
+              nd.parentNode.insertBefore(newDiv,nd.nextSibling);
+              editorRef.current.focus();
+              const r=document.createRange();
+              r.selectNodeContents(newSpan);
+              r.collapse(true);
+              sel.removeAllRanges();sel.addRange(r);
               emit();return;
             }
             if(e.key==="Backspace"&&isEmpty){
