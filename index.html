@@ -3374,7 +3374,10 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
   const applyIndentToBlock=(left,first)=>{
     restoreRange();
     const blk=getCurrentBlock();
-    if(!blk)return;
+    if(!blk){
+      setIndentState({left,first});
+      return;
+    }
     blk.style.marginLeft=left+"px";
     blk.style.textIndent=first+"px";
     setIndentState({left,first});
@@ -4266,8 +4269,8 @@ function DayCountdownSection({T,MO,SE,sleepSettings,sleepDayData}){
         strokeDasharray={circ} strokeDashoffset={circ*(1-pctE/100)}
         strokeLinecap="round" transform={`rotate(-90 ${CX} ${CY})`}
         style={{transition:"stroke-dashoffset 1s linear,stroke 0.5s"}}/>}
-      {!noArc&&pctE>0&&pctE<100&&<circle cx={tX} cy={tY} r={5} fill={color}
-        style={{animation:"sleepPulse 1.2s ease-in-out infinite"}}/>}
+      {!noArc&&pctE>0&&pctE<100&&<circle cx={tX} cy={tY} r={4} fill={color}
+        style={{animation:"dayTick 1.2s ease-in-out infinite"}}/>}
       <text x={CX} y={CY-4} textAnchor="middle"
         style={{fontFamily:"'DM Mono',monospace",fontSize:"0.58rem",fontWeight:700,fill:noArc?T.t3:color}}>
         {noArc?"—":(100-pctE).toFixed(0)+"%"}
