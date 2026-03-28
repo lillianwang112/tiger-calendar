@@ -3095,6 +3095,7 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
   const resizingRef=useRef(null);
   const onChangeRef=useRef(onChange);
   const tableBtnRef=useRef(null);
+  const dragIndentRef=useRef(null);
   const[showLink,setShowLink]=useState(false);
   const[showTable,setShowTable]=useState(false);
   const[showFind,setShowFind]=useState(false);
@@ -3102,6 +3103,8 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
   const[linkUrl,setLinkUrl]=useState("");
   const[tGrid,setTGrid]=useState({r:0,c:0});
   const[tablePos,setTablePos]=useState({top:0,left:0});
+  const[lineSpacing,setLineSpacing]=useState("1.85");
+  const[indentState,setIndentState]=useState({left:0,first:0});
   const[af,setAf]=useState({});
   const[selFontSize,setSelFontSize]=useState("14");
   const[selFont,setSelFont]=useState("");
@@ -3131,6 +3134,19 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
 
   useEffect(()=>{onChangeRef.current=onChange;},[onChange]);
   useEffect(()=>{if(editorRef.current)editorRef.current.innerHTML=initialValue||"";},[]);
+  useEffect(()=>{
+    const syncSelection=()=>{
+      const sel=window.getSelection();
+      if(!sel||!sel.rangeCount||!editorRef.current)return;
+      const range=sel.getRangeAt(0);
+      if(editorRef.current.contains(range.commonAncestorContainer)){
+        savedRange.current=range.cloneRange();
+        updAf();
+      }
+    };
+    document.addEventListener("selectionchange",syncSelection);
+    return()=>document.removeEventListener("selectionchange",syncSelection);
+  },[]);
 
   // Column resize global listeners
   useEffect(()=>{
@@ -3147,6 +3163,46 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
     document.addEventListener("mouseup",onUp);
     return()=>{document.removeEventListener("mousemove",onMove);document.removeEventListener("mouseup",onUp);};
   },[]);
+  useEffect(()=>{
+    if(!showTable)return;
+    const place=()=>{
+      const r=tableBtnRef.current?.getBoundingClientRect();
+      if(!r)return;
+      const panelW=188,panelH=196;
+      let left=Math.min(r.left,window.innerWidth-panelW-8);
+      left=Math.max(8,left);
+      const canOpenAbove=r.top>panelH+12;
+      const top=canOpenAbove?Math.max(8,r.top-panelH-6):Math.min(window.innerHeight-panelH-8,r.bottom+6);
+      setTablePos({top,left});
+    };
+    place();
+    window.addEventListener("resize",place);
+    window.addEventListener("scroll",place,true);
+    return()=>{
+      window.removeEventListener("resize",place);
+      window.removeEventListener("scroll",place,true);
+    };
+  },[showTable]);
+  useEffect(()=>{
+    const onMove=(e)=>{
+      if(!dragIndentRef.current)return;
+      const dx=e.clientX-dragIndentRef.current.startX;
+      if(dragIndentRef.current.type==="left"){
+        const left=Math.max(0,Math.min(320,dragIndentRef.current.base+dx));
+        applyIndentToBlock(left,indentState.first);
+      }else{
+        const first=Math.max(-120,Math.min(200,dragIndentRef.current.base+dx));
+        applyIndentToBlock(indentState.left,first);
+      }
+    };
+    const onUp=()=>{dragIndentRef.current=null;};
+    document.addEventListener("mousemove",onMove);
+    document.addEventListener("mouseup",onUp);
+    return()=>{
+      document.removeEventListener("mousemove",onMove);
+      document.removeEventListener("mouseup",onUp);
+    };
+  },[indentState.left,indentState.first]);
 
   // styleWithCSS makes bold/italic/color use <span style="..."> instead of <b>/<font>
   // This fixes: bold resetting color, bold+italic not coexisting
@@ -3172,7 +3228,8 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
           const dw=300;
           let left=r.left;
           if(left+dw>window.innerWidth-8)left=Math.max(8,window.innerWidth-dw-8);
-          setLinkTip({href:a.getAttribute('href'),rect:r,left,el:a});
+          const top=Math.min(window.innerHeight-42,Math.max(8,r.bottom+6));
+          setLinkTip({href:a.getAttribute('href'),rect:r,left,top,el:a});
           return;
         }
       }
@@ -3205,14 +3262,40 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
           const px=parseFloat(cs.fontSize);
           if(!isNaN(px))setSelFontSize(String(Math.round(px)));
           const ff=cs.fontFamily||"";
-          const fm=FONTS.find(([n,v])=>ff.toLowerCase().includes(v.split(',')[0].replace(/'/g,'').toLowerCase()));
+          const fm=FONTS.find(([n,v])=>v.split(',').some(part=>{
+            const token=part.replace(/'/g,'').trim().toLowerCase();
+            return token&&ff.toLowerCase().includes(token);
+          }));
           setSelFont(fm?fm[1]:"");
+          const lh=parseFloat(cs.lineHeight);
+          if(!isNaN(lh)&&px>0){
+            const ratio=(lh/px).toFixed(2).replace(/\.00$/,'');
+            setLineSpacing(ratio);
+          }
+          setIndentState({left:parseInt(cs.marginLeft,10)||0,first:parseInt(cs.textIndent,10)||0});
         }
       }
       updLinkTip();
     }catch(e){}
   };
-  const exec=(cmd,val=null)=>{restoreRange();sty();document.execCommand(cmd,false,val);emit();updAf();};
+  const exec=(cmd,val=null)=>{
+    restoreRange();sty();
+    const sel=window.getSelection();
+    let preserveFont="";
+    if(sel&&sel.rangeCount&&sel.isCollapsed&&/^(bold|italic|underline|strikeThrough)$/.test(cmd)){
+      let nd=sel.getRangeAt(0).startContainer;
+      if(nd&&nd.nodeType===3)nd=nd.parentElement;
+      if(nd&&editorRef.current?.contains(nd)){
+        const cs=window.getComputedStyle(nd);
+        preserveFont=cs.fontFamily||"";
+      }
+    }
+    document.execCommand(cmd,false,val);
+    if(preserveFont){
+      document.execCommand('fontName',false,preserveFont);
+    }
+    emit();updAf();
+  };
 
   const applyFontSize=(px)=>{
     restoreRange();sty();
@@ -3239,6 +3322,33 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
       });
     }
     emit();setSelFont(ff);
+  };
+  const getCurrentBlock=()=>{
+    const sel=window.getSelection();
+    if(!sel||!sel.rangeCount||!editorRef.current)return null;
+    let nd=sel.getRangeAt(0).startContainer;
+    while(nd&&nd!==editorRef.current){
+      if(nd.nodeType===1&&/^(P|DIV|LI|H1|H2|H3|H4|H5|H6|BLOCKQUOTE|PRE|TD|TH)$/.test(nd.nodeName))return nd;
+      nd=nd.parentNode;
+    }
+    return null;
+  };
+  const applyLineSpacing=(val)=>{
+    restoreRange();
+    const blk=getCurrentBlock();
+    if(blk)blk.style.lineHeight=val;
+    else if(editorRef.current)editorRef.current.style.lineHeight=val;
+    setLineSpacing(val);
+    emit();
+  };
+  const applyIndentToBlock=(left,first)=>{
+    restoreRange();
+    const blk=getCurrentBlock();
+    if(!blk)return;
+    blk.style.marginLeft=left+"px";
+    blk.style.textIndent=first+"px";
+    setIndentState({left,first});
+    emit();
   };
   const insertTableGrid=(rows,cols)=>{
     restoreRange();
@@ -3452,6 +3562,18 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
     }
     if(e.key==="Tab"){
       e.preventDefault();
+      const sel=window.getSelection();
+      let nd=sel&&sel.rangeCount?sel.getRangeAt(0).startContainer:null;
+      while(nd&&nd!==editorRef.current){
+        if(nd.dataset&&nd.dataset.cb){
+          const cur=parseInt(nd.style.marginLeft||"0",10)||0;
+          const next=Math.max(0,cur+(e.shiftKey?-24:24));
+          nd.style.marginLeft=next+"px";
+          emit();
+          return;
+        }
+        nd=nd.parentNode;
+      }
       if(e.shiftKey)exec('outdent');
       else if(af.insertUnorderedList||af.insertOrderedList)exec('indent');
       else document.execCommand('insertHTML',false,'&nbsp;&nbsp;&nbsp;&nbsp;');
@@ -3596,24 +3718,18 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
       <button style={B} onMouseDown={e=>{e.preventDefault();saveRange();setShowLink(p=>!p);}} title="Link (⌘K)">🔗</button>
       <div style={{position:"relative",flexShrink:0}} ref={tableBtnRef}>
         <button style={B} onMouseDown={e=>{e.preventDefault();saveRange();setShowTable(p=>!p);}} title="Table">⊞</button>
-        {showTable&&<div onMouseLeave={()=>setTGrid({r:0,c:0})}
-          style={{position:"absolute",top:"100%",left:0,zIndex:200,background:T.b3,
-            border:`1px solid ${T.bd}`,borderRadius:6,padding:6,
-            boxShadow:"0 4px 16px rgba(0,0,0,0.15)"}}>
-          <div style={{fontSize:"0.7rem",color:T.t3,marginBottom:4,textAlign:"center"}}>
-            {tGrid.r&&tGrid.c?`${tGrid.r}×${tGrid.c}`:"Insert table"}
-          </div>
-          {Array.from({length:8},(_,r)=><div key={r} style={{display:"flex",gap:2,marginBottom:2}}>
-            {Array.from({length:8},(_,c)=><div key={c}
-              onMouseEnter={()=>setTGrid({r:r+1,c:c+1})}
-              onMouseDown={e=>{e.preventDefault();insertTableGrid(tGrid.r||r+1,tGrid.c||c+1);setShowTable(false);}}
-              style={{width:16,height:16,borderRadius:2,cursor:"pointer",
-                background:(r<tGrid.r&&c<tGrid.c)?T.ac+"44":"transparent",
-                border:`1px solid ${(r<tGrid.r&&c<tGrid.c)?T.ac:T.bd}`}}/>)}
-          </div>)}
-        </div>}
       </div>
       <button style={{...B,fontSize:"0.7rem"}} onMouseDown={e=>{e.preventDefault();exec('insertHorizontalRule');}} title="Divider">—</button>
+      <Sep/>
+      <select value={lineSpacing} onMouseDown={()=>saveRange()}
+        onChange={e=>applyLineSpacing(e.target.value)}
+        style={{...IS,minWidth:72}}>
+        <option value="1">1.0</option>
+        <option value="1.15">1.15</option>
+        <option value="1.5">1.5</option>
+        <option value="1.85">1.85</option>
+        <option value="2">2.0</option>
+      </select>
       <Sep/>
       <button style={{...B,fontSize:"0.72rem",color:showFind?T.ac:T.t3}} onMouseDown={e=>{e.preventDefault();saveRange();setShowFind(p=>!p);setShowReplace(false);}} title="Find (⌘F)">⌕</button>
       <Sep/>
@@ -3651,6 +3767,22 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
       <div style={{width:"100%",maxWidth:isME?"100%":760,margin:isME?0:"0 auto",
         background:pageBg,boxShadow:pageShadow,borderRadius:isME?0:4,
         minHeight:minHeight||400,display:"flex",flexDirection:"column"}}>
+        <div style={{height:28,borderBottom:`1px solid ${T.bd}`,background:T.b2,
+          position:"relative",margin:isME?0:"0 24px"}}>
+          <div style={{position:"absolute",left:0,right:0,top:13,height:2,background:T.bd+"55"}}/>
+          <div onMouseDown={e=>{
+              e.preventDefault();
+              dragIndentRef.current={type:"left",startX:e.clientX,base:indentState.left};
+            }}
+            style={{position:"absolute",left:`calc(${indentState.left}px + 0px)`,top:4,
+              width:10,height:20,transform:"translateX(-50%)",cursor:"ew-resize",color:T.ac,fontSize:14,userSelect:"none"}}>▾</div>
+          <div onMouseDown={e=>{
+              e.preventDefault();
+              dragIndentRef.current={type:"first",startX:e.clientX,base:indentState.first};
+            }}
+            style={{position:"absolute",left:`calc(${indentState.left+indentState.first}px + 0px)`,top:1,
+              width:10,height:20,transform:"translateX(-50%)",cursor:"ew-resize",color:T.ac,fontSize:14,userSelect:"none"}}>▸</div>
+        </div>
         <div className="rte-wrap" ref={editorRef}
           contentEditable suppressContentEditableWarning
           data-placeholder={placeholder||"Start writing…"}
@@ -3666,8 +3798,24 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
             fontFamily:"'DM Sans',sans-serif",
             boxSizing:"border-box",cursor:"text",wordBreak:"break-word"}}/>
       </div>
+      {showTable&&<div onMouseLeave={()=>setTGrid({r:0,c:0})}
+        style={{position:"fixed",top:tablePos.top,left:tablePos.left,zIndex:240,background:T.b3,
+          border:`1px solid ${T.bd}`,borderRadius:6,padding:6,
+          boxShadow:"0 4px 16px rgba(0,0,0,0.15)"}}>
+        <div style={{fontSize:"0.7rem",color:T.t3,marginBottom:4,textAlign:"center"}}>
+          {tGrid.r&&tGrid.c?`${tGrid.r}×${tGrid.c}`:"Insert table"}
+        </div>
+        {Array.from({length:8},(_,r)=><div key={r} style={{display:"flex",gap:2,marginBottom:2}}>
+          {Array.from({length:8},(_,c)=><div key={c}
+            onMouseEnter={()=>setTGrid({r:r+1,c:c+1})}
+            onMouseDown={e=>{e.preventDefault();insertTableGrid(tGrid.r||r+1,tGrid.c||c+1);setShowTable(false);}}
+            style={{width:16,height:16,borderRadius:2,cursor:"pointer",
+              background:(r<tGrid.r&&c<tGrid.c)?T.ac+"44":"transparent",
+              border:`1px solid ${(r<tGrid.r&&c<tGrid.c)?T.ac:T.bd}`}}/>)}
+        </div>)}
+      </div>}
       {/* Link tooltip */}
-      {linkTip&&<div style={{position:"fixed",left:linkTip.x,top:linkTip.y,zIndex:300,
+      {linkTip&&<div style={{position:"fixed",left:linkTip.left,top:linkTip.top,zIndex:300,
         background:T.b3,border:`1px solid ${T.bd}`,borderRadius:6,padding:"5px 10px",
         boxShadow:"0 3px 12px rgba(0,0,0,0.18)",display:"flex",gap:8,alignItems:"center",
         fontSize:"0.82rem",maxWidth:280}}>
