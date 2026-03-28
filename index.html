@@ -3290,9 +3290,19 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
       updLinkTip();
     }catch(e){}
   };
+  const hasEditorSelection=()=>{
+    try{
+      const sel=window.getSelection();
+      return !!(sel&&sel.rangeCount&&editorRef.current&&editorRef.current.contains(sel.getRangeAt(0).commonAncestorContainer));
+    }catch(e){
+      return false;
+    }
+  };
   const exec=(cmd,val=null)=>{
-    restoreRange();sty();
+    if(!hasEditorSelection())restoreRange();
+    sty();
     document.execCommand(cmd,false,val);
+    saveRange();
     emit();updAf();
   };
 
