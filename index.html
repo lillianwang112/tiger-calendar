@@ -3144,10 +3144,14 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
   const pageShadow=isDark?"0 2px 10px rgba(0,0,0,0.5)":"0 1px 3px rgba(0,0,0,0.1),0 6px 24px rgba(0,0,0,0.09)";
   const pageColor=isDark?T.tx:"#202124";
   const isME=window.innerWidth<640;
-  const rulerMaxLeft=Math.max(360,Math.round(rulerPx*0.78));
-  const firstIndentMin=-Math.min(160,Math.round(rulerPx*0.24));
-  const firstIndentMax=Math.max(220,Math.round(rulerPx*0.38));
+  const rulerInset=24;
+  const rulerUsablePx=Math.max(280,rulerPx-(rulerInset*2));
+  const rulerMaxLeft=Math.max(220,Math.round(rulerUsablePx*0.78));
+  const firstIndentMin=-Math.min(160,Math.round(rulerUsablePx*0.24));
+  const firstIndentMax=Math.max(180,Math.round(rulerUsablePx*0.38));
   const clampPct=v=>Math.max(0,Math.min(100,v));
+  const leftMarkerPx=Math.max(10,Math.min(rulerPx-10,rulerInset+indentState.left));
+  const firstMarkerPx=Math.max(10,Math.min(rulerPx-10,leftMarkerPx+indentState.first));
 
   useEffect(()=>{onChangeRef.current=onChange;},[onChange]);
   useEffect(()=>{if(editorRef.current)editorRef.current.innerHTML=initialValue||"";},[]);
@@ -3155,7 +3159,7 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
     const syncRulerWidth=()=>{
       const w=rulerRef.current?.clientWidth||0;
       if(w>0){
-        setRulerPx(Math.max(420,w-24));
+        setRulerPx(Math.max(420,w));
       }
     };
     syncRulerWidth();
@@ -3861,22 +3865,26 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
             return <div key={i} style={{position:"absolute",left:`${x}%`,bottom:8,
               width:1,height:major?12:6,background:major?T.t3:T.bd,opacity:major?0.72:0.5}}/>;
           })}
-          <div style={{position:"absolute",left:0,top:0,bottom:0,
-            width:`${clampPct((indentState.left/rulerPx)*100)}%`,background:`linear-gradient(90deg,${T.ac}16,transparent)`}}/>
+          <div style={{position:"absolute",left:rulerInset,top:0,bottom:0,
+            width:`${clampPct((indentState.left/rulerUsablePx)*100)}%`,background:`linear-gradient(90deg,${T.ac}16,transparent)`}}/>
           <div onMouseDown={e=>{
               e.preventDefault();
               dragIndentRef.current={type:"left",startX:e.clientX,base:indentState.left};
             }}
             title="Left indent"
-            style={{position:"absolute",left:`${clampPct((indentState.left/rulerPx)*100)}%`,bottom:17,
-              width:14,height:14,transform:"translateX(-50%)",cursor:"ew-resize",color:T.ac,fontSize:16,userSelect:"none",fontWeight:700}}>▼</div>
+            style={{position:"absolute",left:leftMarkerPx,bottom:10,
+              width:24,height:24,transform:"translateX(-50%)",cursor:"ew-resize",color:T.ac,fontSize:18,userSelect:"none",fontWeight:700,
+              display:"flex",alignItems:"center",justifyContent:"center",borderRadius:6,
+              background:T.b3,border:`1px solid ${T.bd}`}}>▼</div>
           <div onMouseDown={e=>{
               e.preventDefault();
               dragIndentRef.current={type:"first",startX:e.clientX,base:indentState.first};
             }}
             title="First line indent"
-            style={{position:"absolute",left:`${clampPct(((indentState.left+indentState.first)/rulerPx)*100)}%`,bottom:18,
-              width:13,height:13,transform:"translateX(-50%)",cursor:"ew-resize",color:T.ac,fontSize:14,userSelect:"none",fontWeight:700}}>▶</div>
+            style={{position:"absolute",left:firstMarkerPx,bottom:10,
+              width:22,height:22,transform:"translateX(-50%)",cursor:"ew-resize",color:T.ac,fontSize:14,userSelect:"none",fontWeight:700,
+              display:"flex",alignItems:"center",justifyContent:"center",borderRadius:6,
+              background:T.b3,border:`1px solid ${T.bd}`}}>▶</div>
         </div>
       <div style={{width:"100%",maxWidth:isME?"100%":760,margin:isME?0:"0 auto",
         background:pageBg,boxShadow:pageShadow,borderRadius:isME?0:4,
