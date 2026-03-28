@@ -3114,6 +3114,7 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
   const[tGrid,setTGrid]=useState({r:0,c:0});
   const[tablePos,setTablePos]=useState({top:0,left:0});
   const[lineSpacing,setLineSpacing]=useState("1.85");
+  const[rulerPx,setRulerPx]=useState(520);
   const[indentState,setIndentState]=useState({left:0,first:0});
   const[af,setAf]=useState({});
   const[selFontSize,setSelFontSize]=useState("14");
@@ -3124,6 +3125,7 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
   const[charCount,setCharCount]=useState(0);
   const[linkTip,setLinkTip]=useState(null);
   const[curTextColor,setCurTextColor]=useState(T.tx||"#111111");
+  const rulerRef=useRef(null);
   const FSIZES=["8","9","10","11","12","14","16","18","20","24","28","36","48","72"];
   const FONTS=[
     ["Sans-serif","'DM Sans',Arial,sans-serif"],
@@ -3142,9 +3144,24 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
   const pageShadow=isDark?"0 2px 10px rgba(0,0,0,0.5)":"0 1px 3px rgba(0,0,0,0.1),0 6px 24px rgba(0,0,0,0.09)";
   const pageColor=isDark?T.tx:"#202124";
   const isME=window.innerWidth<640;
+  const rulerMaxLeft=Math.max(360,Math.round(rulerPx*0.78));
+  const firstIndentMin=-Math.min(160,Math.round(rulerPx*0.24));
+  const firstIndentMax=Math.max(220,Math.round(rulerPx*0.38));
+  const clampPct=v=>Math.max(0,Math.min(100,v));
 
   useEffect(()=>{onChangeRef.current=onChange;},[onChange]);
   useEffect(()=>{if(editorRef.current)editorRef.current.innerHTML=initialValue||"";},[]);
+  useEffect(()=>{
+    const syncRulerWidth=()=>{
+      const w=rulerRef.current?.clientWidth||0;
+      if(w>0){
+        setRulerPx(Math.max(420,w-24));
+      }
+    };
+    syncRulerWidth();
+    window.addEventListener("resize",syncRulerWidth);
+    return()=>window.removeEventListener("resize",syncRulerWidth);
+  },[]);
   useEffect(()=>{
     const syncSelection=()=>{
       const sel=window.getSelection();
@@ -3199,10 +3216,10 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
       if(!dragIndentRef.current)return;
       const dx=e.clientX-dragIndentRef.current.startX;
       if(dragIndentRef.current.type==="left"){
-        const left=Math.max(0,Math.min(320,dragIndentRef.current.base+dx));
+        const left=Math.max(0,Math.min(rulerMaxLeft,dragIndentRef.current.base+dx));
         applyIndentToBlock(left,indentState.first);
       }else{
-        const first=Math.max(-120,Math.min(200,dragIndentRef.current.base+dx));
+        const first=Math.max(firstIndentMin,Math.min(firstIndentMax,dragIndentRef.current.base+dx));
         applyIndentToBlock(indentState.left,first);
       }
     };
@@ -3213,7 +3230,7 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
       document.removeEventListener("mousemove",onMove);
       document.removeEventListener("mouseup",onUp);
     };
-  },[indentState.left,indentState.first]);
+  },[indentState.left,indentState.first,rulerMaxLeft,firstIndentMin,firstIndentMax]);
 
   // styleWithCSS makes bold/italic/color use <span style="..."> instead of <b>/<font>
   // This fixes: bold resetting color, bold+italic not coexisting
@@ -3835,27 +3852,31 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
     <div style={{flex:1,background:outerBg,overflowY:"auto",padding:isME?"8px 0":"20px 0",
       display:"flex",justifyContent:"center",position:"relative"}}>
       <div style={{width:"100%",maxWidth:isME?"100%":760,margin:isME?0:"0 auto",display:"flex",flexDirection:"column",gap:isME?0:8}}>
-        <div style={{height:30,margin:isME?0:"0 24px",border:`1px solid ${T.bd}`,borderRadius:6,
-          background:T.b2,position:"relative",overflow:"hidden",display:isME?"none":"block"}}>
-          <div style={{position:"absolute",left:0,right:0,bottom:6,height:1,background:T.bd+"aa"}}/>
+        <div ref={rulerRef} style={{height:34,margin:isME?0:"0 24px",border:`1px solid ${T.bd}`,borderRadius:6,
+          background:`linear-gradient(180deg,${T.b3},${T.b2})`,position:"relative",overflow:"hidden",display:isME?"none":"block"}}>
+          <div style={{position:"absolute",left:0,right:0,bottom:8,height:1,background:T.bd+"aa"}}/>
           {Array.from({length:56},(_,i)=>{
             const x=(i/55)*100;
             const major=i%5===0;
-            return <div key={i} style={{position:"absolute",left:`${x}%`,bottom:6,
-              width:1,height:major?11:6,background:major?T.t3:T.bd}}/>;
+            return <div key={i} style={{position:"absolute",left:`${x}%`,bottom:8,
+              width:1,height:major?12:6,background:major?T.t3:T.bd,opacity:major?0.72:0.5}}/>;
           })}
+          <div style={{position:"absolute",left:0,top:0,bottom:0,
+            width:`${clampPct((indentState.left/rulerPx)*100)}%`,background:`linear-gradient(90deg,${T.ac}16,transparent)`}}/>
           <div onMouseDown={e=>{
               e.preventDefault();
               dragIndentRef.current={type:"left",startX:e.clientX,base:indentState.left};
             }}
-            style={{position:"absolute",left:`${Math.max(0,Math.min(100,(indentState.left/520)*100))}%`,bottom:17,
-              width:12,height:12,transform:"translateX(-50%)",cursor:"ew-resize",color:T.ac,fontSize:15,userSelect:"none",fontWeight:700}}>▼</div>
+            title="Left indent"
+            style={{position:"absolute",left:`${clampPct((indentState.left/rulerPx)*100)}%`,bottom:17,
+              width:14,height:14,transform:"translateX(-50%)",cursor:"ew-resize",color:T.ac,fontSize:16,userSelect:"none",fontWeight:700}}>▼</div>
           <div onMouseDown={e=>{
               e.preventDefault();
               dragIndentRef.current={type:"first",startX:e.clientX,base:indentState.first};
             }}
-            style={{position:"absolute",left:`${Math.max(0,Math.min(100,((indentState.left+indentState.first)/520)*100))}%`,bottom:18,
-              width:12,height:12,transform:"translateX(-50%)",cursor:"ew-resize",color:T.ac,fontSize:14,userSelect:"none",fontWeight:700}}>▶</div>
+            title="First line indent"
+            style={{position:"absolute",left:`${clampPct(((indentState.left+indentState.first)/rulerPx)*100)}%`,bottom:18,
+              width:13,height:13,transform:"translateX(-50%)",cursor:"ew-resize",color:T.ac,fontSize:14,userSelect:"none",fontWeight:700}}>▶</div>
         </div>
       <div style={{width:"100%",maxWidth:isME?"100%":760,margin:isME?0:"0 auto",
         background:pageBg,boxShadow:pageShadow,borderRadius:isME?0:4,
