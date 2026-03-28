@@ -3871,7 +3871,7 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
     <div style={{flex:1,background:outerBg,overflowY:"auto",padding:isME?"8px 0":"20px 0",
       display:"flex",justifyContent:"center",position:"relative"}}>
       <div style={{width:"100%",maxWidth:isME?"100%":760,margin:isME?0:"0 auto",display:"flex",flexDirection:"column",gap:isME?0:8}}>
-        <div ref={rulerRef} style={{height:34,margin:isME?0:"0 24px",border:`1px solid ${T.bd}`,borderRadius:6,
+        <div ref={rulerRef} style={{height:34,margin:0,border:`1px solid ${T.bd}`,borderRadius:6,
           background:`linear-gradient(180deg,${T.b3},${T.b2})`,position:"relative",overflow:"hidden",display:isME?"none":"block"}}>
           <div style={{position:"absolute",left:0,right:0,bottom:8,height:1,background:T.bd+"aa"}}/>
           {Array.from({length:56},(_,i)=>{
