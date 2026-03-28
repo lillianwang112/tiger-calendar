@@ -3168,6 +3168,7 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
   },[]);
   useEffect(()=>{
     const syncSelection=()=>{
+      if(dragIndentRef.current)return;
       const sel=window.getSelection();
       if(!sel||!sel.rangeCount||!editorRef.current)return;
       const range=sel.getRangeAt(0);
@@ -3227,7 +3228,12 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
         applyIndentToBlock(indentState.left,first);
       }
     };
-    const onUp=()=>{dragIndentRef.current=null;};
+    const onUp=()=>{
+      if(!dragIndentRef.current)return;
+      dragIndentRef.current=null;
+      saveRange();
+      updAf();
+    };
     document.addEventListener("mousemove",onMove);
     document.addEventListener("mouseup",onUp);
     return()=>{
@@ -3305,7 +3311,12 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
             const ratio=(lh/px).toFixed(2).replace(/\.00$/,'');
             setLineSpacing(ratio);
           }
-          setIndentState({left:parseInt(cs.marginLeft,10)||0,first:parseInt(cs.textIndent,10)||0});
+          const blockNode=getCurrentBlock()||(nd?.closest?.('p,div,li,h1,h2,h3,h4,h5,h6,blockquote,pre,td,th'));
+          const blockStyle=blockNode?window.getComputedStyle(blockNode):cs;
+          setIndentState({
+            left:parseInt(blockStyle.marginLeft,10)||0,
+            first:parseInt(blockStyle.textIndent,10)||0
+          });
         }
       }
       updLinkTip();
@@ -3357,11 +3368,12 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
     const sel=window.getSelection();
     if(!sel||!sel.rangeCount||!editorRef.current)return null;
     let nd=sel.getRangeAt(0).startContainer;
+    if(nd&&nd.nodeType===3)nd=nd.parentNode;
     while(nd&&nd!==editorRef.current){
       if(nd.nodeType===1&&/^(P|DIV|LI|H1|H2|H3|H4|H5|H6|BLOCKQUOTE|PRE|TD|TH)$/.test(nd.nodeName))return nd;
       nd=nd.parentNode;
     }
-    return null;
+    return editorRef.current;
   };
   const applyLineSpacing=(val)=>{
     restoreRange();
@@ -3872,6 +3884,8 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
             width:`${clampPct((indentState.left/rulerUsablePx)*100)}%`,background:`linear-gradient(90deg,${T.ac}16,transparent)`}}/>
           <div onMouseDown={e=>{
               e.preventDefault();
+              restoreRange();
+              saveRange();
               dragIndentRef.current={type:"left",startX:e.clientX,base:indentState.left};
             }}
             title="Left indent"
@@ -3881,6 +3895,8 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
               background:T.b3,border:`1px solid ${T.bd}`}}>▼</div>
           <div onMouseDown={e=>{
               e.preventDefault();
+              restoreRange();
+              saveRange();
               dragIndentRef.current={type:"first",startX:e.clientX,base:indentState.first};
             }}
             title="First line indent"
