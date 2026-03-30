@@ -785,6 +785,13 @@ function App(){
     else d.setFullYear(d.getFullYear()+dir);return d;};
   const nav=(dir)=>setCd(navDate(cd,dir));
 
+  const undo=useCallback(()=>{
+    if(!undoStackRef.current.length)return;
+    const prev=undoStackRef.current[0];
+    undoStackRef.current=undoStackRef.current.slice(1);
+    setEv(prev.events);setTk(prev.tasks);setExams(prev.exams);setAssignments(prev.assignments);if(prev.officeHours)setOfficeHours(prev.officeHours);
+  },[]);
+
   useEffect(()=>{const h=(e)=>{
     if((e.metaKey||e.ctrlKey)&&e.key==="z"&&!e.shiftKey){if(e.target.isContentEditable)return;e.preventDefault();undo();return;}
     if(modal||csOpen||settingsOpen||eaOpen)return;if(["INPUT","TEXTAREA","SELECT"].includes(e.target.tagName))return;if(e.target.isContentEditable)return;
@@ -811,13 +818,6 @@ function App(){
   const pushUndo=useCallback(()=>{
     undoStackRef.current=[{events,tasks,exams,assignments,officeHours},...undoStackRef.current.slice(0,MAX_UNDO-1)];
   },[events,tasks,exams,assignments,officeHours]);
-
-  const undo=useCallback(()=>{
-    if(!undoStackRef.current.length)return;
-    const prev=undoStackRef.current[0];
-    undoStackRef.current=undoStackRef.current.slice(1);
-    setEv(prev.events);setTk(prev.tasks);setExams(prev.exams);setAssignments(prev.assignments);if(prev.officeHours)setOfficeHours(prev.officeHours);
-  },[]);
 
   const aE=(ev)=>{pushUndo();
     if(ev._recur&&ev._recur.type!=="none"){const all=genRecurring(ev);setEv(p=>[...p,...all]);}
