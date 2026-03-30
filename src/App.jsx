@@ -16,7 +16,7 @@ try {
     appId: "1:533446603643:web:ab65c7aa725d5bea1903de"
   };
   if (FIREBASE_ENABLED && firebaseConfig.apiKey !== "YOUR_API_KEY") {
-    FB_APP = firebase.initializeApp(firebaseConfig);
+    FB_APP = firebase.apps.length ? firebase.apps[0] : firebase.initializeApp(firebaseConfig);
     FB_AUTH = firebase.auth();
     FB_DB = firebase.firestore();
     FB_DB.enablePersistence({ synchronizeTabs: true }).catch(() => {});
