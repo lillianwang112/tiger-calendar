@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>TigerCalendar</title>
+<meta name="description" content="TigerCalendar — a calendar and task manager for Princeton students">
+<meta name="theme-color" content="#5c4db3">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="TigerCal">
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" type="image/x-icon" href="/icons/favicon.ico">
+<link rel="icon" type="image/png" sizes="32x32" href="/icons/icon-32x32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16x16.png">
+<link rel="apple-touch-icon" sizes="152x152" href="/icons/icon-152x152.png">
+<link rel="apple-touch-icon" sizes="192x192" href="/icons/icon-192x192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Mono:wght@300;400;500&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body,#root{height:100%;width:100%;overflow:hidden}
+  body{font-family:'DM Sans',-apple-system,sans-serif}
+  /* App shell shown instantly while JS loads */
+  #app-shell{position:fixed;inset:0;z-index:9999;display:flex;flex-direction:column;background:#f5f3ef;transition:opacity 0.25s}
+  #app-shell.hide{opacity:0;pointer-events:none}
+  #app-shell .shell-bar{display:flex;align-items:center;gap:8px;padding:8px 14px;border-bottom:1px solid #ddd8d0;background:#efece6;flex-shrink:0}
+  #app-shell .shell-bar h1{font-family:'DM Serif Display',Georgia,serif;font-size:1.2rem;margin:0;letter-spacing:-0.02em;line-height:1}
+  #app-shell .shell-bar h1 span{color:#5c4db3;font-style:italic}
+  #app-shell .progress-track{height:2.5px;width:100%;background:transparent;overflow:hidden;flex-shrink:0}
+  #app-shell .progress-fill{height:100%;width:30%;background:linear-gradient(90deg,transparent,#5c4db3,transparent);animation:shellSlide 1.2s ease-in-out infinite}
+  #app-shell .shell-body{flex:1;display:flex;overflow:hidden}
+  #app-shell .shell-side{width:248px;background:#efece6;border-right:1px solid #ddd8d0;flex-shrink:0}
+  #app-shell .shell-main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+  #app-shell .shell-dayrow{display:flex;border-bottom:1px solid #ddd8d0;flex-shrink:0;padding-right:6px}
+  #app-shell .shell-dayrow .gutter{width:48px;flex-shrink:0}
+  #app-shell .shell-dayrow .daycol{flex:1;text-align:center;padding:6px 0 4px;font-family:'DM Mono',monospace;font-size:0.5rem;color:#aaa5b5;letter-spacing:0.06em;text-transform:uppercase;border-left:1px solid #ddd8d0}
+  #app-shell .shell-dayrow .daycol.today{color:#5c4db3;font-weight:700}
+  #app-shell .shell-grid{flex:1;display:flex;overflow-y:auto;overflow-x:hidden}
+  #app-shell .shell-gutter{width:48px;flex-shrink:0}
+  #app-shell .shell-gutter .hr{height:60px;display:flex;align-items:flex-start;justify-content:flex-end;padding:0 6px 0 0;font-family:'DM Mono',monospace;font-size:0.4rem;color:#c0bcc8}
+  #app-shell .shell-cols{flex:1;display:flex;min-height:1440px}
+  #app-shell .shell-cols .col{flex:1;border-left:1px solid #ddd8d0}
+  #app-shell .shell-cols .col .hr{height:60px;border-bottom:1px solid #eeeae4}
+  @keyframes shellSlide{0%{transform:translateX(-100%)}100%{transform:translateX(400%)}}
+  @media(max-width:768px){
+    #app-shell .shell-side{display:none}
+    #app-shell .shell-dayrow .daycol{font-size:0.42rem;padding:4px 0 2px}
+    #app-shell .shell-gutter{width:36px}
+    #app-shell .shell-gutter .hr{font-size:0.35rem;padding-right:4px}
+  }
+  @media(prefers-color-scheme:dark){
+    #app-shell{background:#0d0d0f}
+    #app-shell .shell-bar{background:#131315;border-color:#2a2a32}
+    #app-shell .shell-bar h1 span{color:#c8b8ff}
+    #app-shell .shell-side{background:#131315;border-color:#2a2a32}
+    #app-shell .shell-dayrow{border-color:#2a2a32}
+    #app-shell .shell-dayrow .daycol{color:#5a5868;border-color:#2a2a32}
+    #app-shell .shell-dayrow .daycol.today{color:#c8b8ff}
+    #app-shell .shell-cols .col{border-color:#2a2a32}
+    #app-shell .shell-cols .col .hr{border-color:#1a1a22}
+    #app-shell .shell-gutter .hr{color:#3a3a48}
+    #app-shell .progress-fill{background:linear-gradient(90deg,transparent,#c8b8ff,transparent)}
+  }
+  #root{opacity:0;transition:opacity .2s}#root.ready{opacity:1}
+</style>
+</head>
+<body>
+<!-- App shell: renders instantly from HTML, no JS needed -->
+<div id="app-shell">
+  <div class="shell-bar">
+    <span style="font-size:1.1rem">☰</span>
+    <img src="/icons/icon-128x128.png" alt="" style="width:22px;height:22px;border-radius:6px;object-fit:contain" onerror="this.style.display='none'"/>
+    <h1>Tiger<span>Calendar</span></h1>
+  </div>
+  <div class="progress-track"><div class="progress-fill"></div></div>
+  <div class="shell-body">
+    <div class="shell-side"></div>
+    <div class="shell-main">
+      <div class="shell-dayrow" id="shell-dayrow"><div class="gutter"></div></div>
+      <div class="shell-grid">
+        <div class="shell-gutter" id="shell-gutter"></div>
+        <div class="shell-cols" id="shell-cols"></div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+// Populate the shell skeleton with today's week + time gutter (runs instantly, no deps)
+(function(){
+  var dn=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+  var now=new Date(),dow=now.getDay();
+  var wkStart=new Date(now);wkStart.setDate(now.getDate()-dow);
+  var row=document.getElementById("shell-dayrow");
+  var cols=document.getElementById("shell-cols");
+  var gut=document.getElementById("shell-gutter");
+  if(!row||!cols||!gut)return;
+  for(var i=0;i<7;i++){
+    var d=new Date(wkStart);d.setDate(wkStart.getDate()+i);
+    var isToday=d.toDateString()===now.toDateString();
+    var dc=document.createElement("div");
+    dc.className="daycol"+(isToday?" today":"");
+    dc.innerHTML='<div>'+dn[d.getDay()]+'</div><div style="font-family:\'DM Serif Display\',serif;font-size:'+(isToday?'1.1rem':'1rem')+'">'+ d.getDate()+'</div>';
+    row.appendChild(dc);
+    var col=document.createElement("div");col.className="col";
+    for(var h=0;h<24;h++){var hr=document.createElement("div");hr.className="hr";col.appendChild(hr);}
+    cols.appendChild(col);
+  }
+  for(var h=0;h<24;h++){
+    var hr=document.createElement("div");hr.className="hr";
+    if(h>0){var ampm=h>=12?"PM":"AM";hr.textContent=(h%12||12)+" "+ampm;}
+    gut.appendChild(hr);
+  }
+  // Scroll to ~7 AM
+  var grid=document.querySelector("#app-shell .shell-grid");
+  if(grid)grid.scrollTop=7*60;
+})();
+</script>
+<div id="root"></div>
+<!-- Puter.js — free AI (used for email parsing in Import modal) -->
+<script src="https://js.puter.com/v2/" defer></script>
+<script type="module" src="/src/main.jsx"></script>
+</body>
+</html>

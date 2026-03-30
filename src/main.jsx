@@ -7,5 +7,5 @@ const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(<App />);
 document.getElementById('root').classList.add('ready');
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('/sw.js').catch(() => {});
+  navigator.serviceWorker.register('./sw.js').catch(() => {});
 }
