@@ -1,0 +1,86 @@
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body,#root{height:100%;width:100%;overflow:hidden}
+  body{font-family:'DM Sans',-apple-system,sans-serif}
+  /* App shell shown instantly while JS loads */
+  #app-shell{position:fixed;inset:0;z-index:9999;display:flex;flex-direction:column;background:#f5f3ef;transition:opacity 0.25s}
+  #app-shell.hide{opacity:0;pointer-events:none}
+  #app-shell .shell-bar{display:flex;align-items:center;gap:8px;padding:8px 14px;border-bottom:1px solid #ddd8d0;background:#efece6;flex-shrink:0}
+  #app-shell .shell-bar h1{font-family:'DM Serif Display',Georgia,serif;font-size:1.2rem;margin:0;letter-spacing:-0.02em;line-height:1}
+  #app-shell .shell-bar h1 span{color:#5c4db3;font-style:italic}
+  #app-shell .progress-track{height:2.5px;width:100%;background:transparent;overflow:hidden;flex-shrink:0}
+  #app-shell .progress-fill{height:100%;width:30%;background:linear-gradient(90deg,transparent,#5c4db3,transparent);animation:shellSlide 1.2s ease-in-out infinite}
+  #app-shell .shell-body{flex:1;display:flex;overflow:hidden}
+  #app-shell .shell-side{width:248px;background:#efece6;border-right:1px solid #ddd8d0;flex-shrink:0}
+  #app-shell .shell-main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+  #app-shell .shell-dayrow{display:flex;border-bottom:1px solid #ddd8d0;flex-shrink:0;padding-right:6px}
+  #app-shell .shell-dayrow .gutter{width:48px;flex-shrink:0}
+  #app-shell .shell-dayrow .daycol{flex:1;text-align:center;padding:6px 0 4px;font-family:'DM Mono',monospace;font-size:0.5rem;color:#aaa5b5;letter-spacing:0.06em;text-transform:uppercase;border-left:1px solid #ddd8d0}
+  #app-shell .shell-dayrow .daycol.today{color:#5c4db3;font-weight:700}
+  #app-shell .shell-grid{flex:1;display:flex;overflow-y:auto;overflow-x:hidden}
+  #app-shell .shell-gutter{width:48px;flex-shrink:0}
+  #app-shell .shell-gutter .hr{height:60px;display:flex;align-items:flex-start;justify-content:flex-end;padding:0 6px 0 0;font-family:'DM Mono',monospace;font-size:0.4rem;color:#c0bcc8}
+  #app-shell .shell-cols{flex:1;display:flex;min-height:1440px}
+  #app-shell .shell-cols .col{flex:1;border-left:1px solid #ddd8d0}
+  #app-shell .shell-cols .col .hr{height:60px;border-bottom:1px solid #eeeae4}
+  @keyframes shellSlide{0%{transform:translateX(-100%)}100%{transform:translateX(400%)}}
+  @media(max-width:768px){
+    #app-shell .shell-side{display:none}
+    #app-shell .shell-dayrow .daycol{font-size:0.42rem;padding:4px 0 2px}
+    #app-shell .shell-gutter{width:36px}
+    #app-shell .shell-gutter .hr{font-size:0.35rem;padding-right:4px}
+  }
+  @media(prefers-color-scheme:dark){
+    #app-shell{background:#0d0d0f}
+    #app-shell .shell-bar{background:#131315;border-color:#2a2a32}
+    #app-shell .shell-bar h1 span{color:#c8b8ff}
+    #app-shell .shell-side{background:#131315;border-color:#2a2a32}
+    #app-shell .shell-dayrow{border-color:#2a2a32}
+    #app-shell .shell-dayrow .daycol{color:#5a5868;border-color:#2a2a32}
+    #app-shell .shell-dayrow .daycol.today{color:#c8b8ff}
+    #app-shell .shell-cols .col{border-color:#2a2a32}
+    #app-shell .shell-cols .col .hr{border-color:#1a1a22}
+    #app-shell .shell-gutter .hr{color:#3a3a48}
+    #app-shell .progress-fill{background:linear-gradient(90deg,transparent,#c8b8ff,transparent)}
+  }
+  #root{opacity:0;transition:opacity .2s}#root.ready{opacity:1}
+  ::-webkit-scrollbar{width:6px;height:6px}
+  ::-webkit-scrollbar-track{background:transparent}
+  ::-webkit-scrollbar-thumb{background:#2a2a32;border-radius:3px}
+  select option{font-family:'DM Sans',sans-serif}
+  @media (max-width: 768px) {
+    .mobile-fab { display: flex !important; }
+  }
+  .no-select { -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
+  @keyframes slideUp { from { transform: translateY(100%); opacity:0; } to { transform: translateY(0); opacity:1; } }
+  @keyframes longPressRipple { 0%{transform:scale(0.3);opacity:0.7} 100%{transform:scale(1);opacity:0} }
+  .lp-ripple { animation: longPressRipple 0.32s ease-out forwards; pointer-events:none; }
+  @keyframes sleepPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:0.55;transform:scale(1.18)}}
+  @keyframes dayTick{0%,100%{opacity:1}50%{opacity:0.7}}
+  .rte-wrap h1{font-family:'DM Serif Display',Georgia,serif;font-size:1.7rem;font-weight:700;margin:16px 0 6px;line-height:1.25;letter-spacing:-0.01em}
+  .rte-wrap h2{font-family:'DM Serif Display',Georgia,serif;font-size:1.35rem;font-weight:700;margin:12px 0 5px;line-height:1.25}
+  .rte-wrap h3{font-family:'DM Serif Display',Georgia,serif;font-size:1.1rem;font-weight:600;margin:10px 0 4px;line-height:1.3}
+  .rte-wrap p{margin:0 0 6px}
+  .rte-wrap a{color:#4f6ef7;text-decoration:underline;text-underline-offset:2px}
+  .rte-wrap a:hover{color:#3b56e8}
+  .rte-wrap ul{padding-left:24px;margin:4px 0 8px}
+  .rte-wrap ol{padding-left:24px;margin:4px 0 8px}
+  .rte-wrap li{margin:3px 0;line-height:1.75}
+  .rte-wrap ul[data-bullet-style="star"],
+  .rte-wrap ul[data-bullet-style="arrow"]{list-style:none;padding-left:28px}
+  .rte-wrap ul[data-bullet-style="star"] li,
+  .rte-wrap ul[data-bullet-style="arrow"] li{position:relative}
+  .rte-wrap ul[data-bullet-style="star"] li::before,
+  .rte-wrap ul[data-bullet-style="arrow"] li::before{
+    position:absolute;left:-20px;top:0.05em;font-size:0.9em;line-height:1.75;opacity:0.9
+  }
+  .rte-wrap ul[data-bullet-style="star"] li::before{content:"✦"}
+  .rte-wrap ul[data-bullet-style="arrow"] li::before{content:"➤"}
+  .rte-wrap table{border-collapse:collapse;width:100%;margin:10px 0}
+  .rte-wrap td,.rte-wrap th{border:1px solid #a0a0a0;padding:7px 12px;min-width:60px;text-align:left}
+  .rte-wrap th{background:rgba(128,128,128,0.1);font-weight:600}
+  .rte-wrap hr{border:none;border-top:2px solid rgba(128,128,128,0.22);margin:16px 0}
+  .rte-wrap blockquote{border-left:3px solid #6366f1;margin:10px 0;padding:6px 16px;opacity:0.9;font-style:italic}
+  .rte-wrap pre{background:rgba(128,128,128,0.1);border-radius:6px;padding:10px 14px;font-family:'DM Mono',monospace;font-size:0.85em;overflow-x:auto;margin:8px 0;white-space:pre-wrap}
+  .rte-wrap [data-placeholder]:empty:before{content:attr(data-placeholder);color:#999;pointer-events:none;font-style:italic}
+  .rte-wrap:focus-within [data-placeholder]:empty:before{color:#bbb}
+  .rte-tb::-webkit-scrollbar{display:none}
