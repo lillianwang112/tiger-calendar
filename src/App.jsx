@@ -720,8 +720,8 @@ function App(){
       const[bH,bM]=bt.split(":").map(Number);
       const[wH,wM]=wt.split(":").map(Number);
       if(isNaN(bH)||isNaN(wH))continue;
-      const bEndMin=Math.min(bH*60+bM+45,bH*60+59);
-      const wEndMin=Math.min(wH*60+wM+45,wH*60+59);
+      const bEndMin=bH*60+bM+5;
+      const wEndMin=wH*60+wM+5;
       res.push({id:`_slp_b_${ds}`,_sleepId:ds,_sleepType:"bedtime",date:ds,
         title:"\uD83C\uDF19 Bedtime",startHour:bH,startMin:bM,
         endHour:Math.floor(bEndMin/60),endMin:bEndMin%60,
