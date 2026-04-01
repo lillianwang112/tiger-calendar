@@ -646,6 +646,8 @@ function App(){
   const[importOpen,setImportOpen]=useState(false);
   const[chatOpen,setChatOpen]=useState(false);
   const[viewOpen,setViewOpen]=useState(false);
+  const viewBtnRef=useRef(null);
+  const[viewDropPos,setViewDropPos]=useState({top:0,right:0});
   const[mcM,setMcM]=useState(()=>new Date());
   const[sbO,setSbO]=useState(()=>window.innerWidth>=768);
   const swipeRef=useRef(null);
@@ -1046,7 +1048,7 @@ function App(){
       {/* RIGHT: view picker + icon tabs + settings + palette + auth — all flexShrink:0 so they never wrap */}
       <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0,marginLeft:8}}>
         <div style={{position:"relative",zIndex:viewOpen?500:1}}>
-          <button onClick={()=>setViewOpen(p=>!p)} style={{display:"flex",alignItems:"center",gap:5,padding:"3px 10px",
+          <button ref={viewBtnRef} onClick={()=>{if(!viewOpen&&viewBtnRef.current){const r=viewBtnRef.current.getBoundingClientRect();setViewDropPos({top:r.bottom+4,right:window.innerWidth-r.right});}setViewOpen(p=>!p);}} style={{display:"flex",alignItems:"center",gap:5,padding:"3px 10px",
             background:T.b3,border:`1px solid ${T.bd}`,borderRadius:6,cursor:"pointer",
             fontFamily:MO,fontSize:"0.55rem",letterSpacing:"0.07em",textTransform:"uppercase",color:T.tx,whiteSpace:"nowrap"}}>
             {view==="semester"?"Semester":view==="tasks-dashboard"?"Tasks":view==="notes-dashboard"?"Notes":view==="focus-dashboard"?"Focus":view==="home"?"Dashboard":view}
@@ -1054,7 +1056,7 @@ function App(){
           </button>
           {viewOpen&&<>
             <div onClick={()=>setViewOpen(false)} style={{position:"fixed",inset:0,zIndex:499}}/>
-            <div style={{position:"absolute",top:"100%",right:0,marginTop:4,background:T.mb,border:`1px solid ${T.bd}`,
+            <div style={{position:"fixed",top:viewDropPos.top,right:viewDropPos.right,background:T.mb,border:`1px solid ${T.bd}`,
               borderRadius:8,boxShadow:"0 8px 24px rgba(0,0,0,0.18)",zIndex:500,minWidth:150,
               maxHeight:"calc(100vh - 80px)",overflowY:"auto"}}>
               {[["day","Day","D"],["week","Week","W"],["month","Month","M"],["year","Year","Y"],["schedule","Schedule","S"],["semester","Semester",""],["tasks-dashboard","Tasks",""],["notes-dashboard","Notes",""],["focus-dashboard","Focus",""],["home","Dashboard",""]].map(([k,label,shortcut])=>
@@ -3192,8 +3194,6 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
 
   const applyFontSize=(px)=>{
     restoreRange();
-    // Temporarily disable styleWithCSS so execCommand('fontSize') creates <font size="7">
-    // instead of <span style="font-size: xx-large">, which our querySelector can then find and replace.
     try{document.execCommand('styleWithCSS',false,false);}catch(e){}
     document.execCommand('fontSize',false,'7');
     try{document.execCommand('styleWithCSS',false,true);}catch(e){}
@@ -3203,6 +3203,12 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
         span.style.fontSize=px+'px';
         span.innerHTML=font.innerHTML;
         font.parentNode.replaceChild(span,font);
+        // Clear font-size from ancestor inline elements so they don't override the new size
+        let anc=span.parentNode;
+        while(anc&&anc!==editorRef.current){
+          if(anc.nodeType===1&&anc.style&&anc.style.fontSize)anc.style.fontSize='';
+          anc=anc.parentNode;
+        }
       });
     }
     emit();setSelFontSize(String(px));
