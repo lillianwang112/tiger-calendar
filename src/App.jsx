@@ -655,6 +655,14 @@ function App(){
   const[journalEntries,setJournalEntries]=useState(saved?.journalEntries||[]);
   const[sleepSettings,setSleepSettings]=useState(saved?.sleepSettings||{enabled:false,bedtime:"22:00",wakeTime:"07:00"});
   const[sleepDayData,setSleepDayData]=useState(saved?.sleepDayData||{});
+  const[dashPriorities,setDashPriorities]=useState(saved?.dashPriorities||[]);
+  const DEFAULT_DASH_LAYOUT=[
+    {id:"dw_welcome",type:"welcome"},
+    {id:"dw_schedule",type:"schedule"},
+    {id:"dw_tasks",type:"tasks"},
+    {id:"dw_priorities",type:"priorities"},
+  ];
+  const[dashLayout,setDashLayout]=useState(saved?.dashLayout||DEFAULT_DASH_LAYOUT);
   // remember last calendar view so the calendar icon button returns to it
   const lastCalViewRef=useRef(view==="tasks-dashboard"||view==="notes-dashboard"||view==="focus-dashboard"?"week":view);
 
@@ -679,7 +687,7 @@ function App(){
     }
   },[authLoading]);
 
-  const syncSetters=useMemo(()=>({setEv,setTk:setTk,setCo,setCats,setSem,setTheme,setSettings,setExams,setAssignments,setOfficeHours,setShowHolidays,setCsOpen,setView,setQuickNotes,setJournalEntries,setSleepSettings,setSleepDayData}),[]);
+  const syncSetters=useMemo(()=>({setEv,setTk:setTk,setCo,setCats,setSem,setTheme,setSettings,setExams,setAssignments,setOfficeHours,setShowHolidays,setCsOpen,setView,setQuickNotes,setJournalEntries,setSleepSettings,setSleepDayData,setDashPriorities,setDashLayout}),[]);
   // Derived events are always regenerated from their source data (tasks, officeHours, courses, PCAL).
   // Never persist them — doing so causes duplicates on reload and stale data across devices.
   const persistableEvents=useMemo(()=>events.filter(e=>
@@ -734,7 +742,7 @@ function App(){
     return res;
   },[sleepSettings,sleepDayData]);
   const allEvents=[...events.filter(e=>!e._taskDueId),..._taskDueEvs,..._sleepEvs];
-  const{upload,restoreFromBackup,cloudSyncReady}=useFirestoreSync(user,{events:persistableEvents,tasks,courses,cats,sem,theme,showHolidays,settings,exams,assignments,officeHours,quickNotes,journalEntries,sleepSettings,sleepDayData},syncSetters);
+  const{upload,restoreFromBackup,cloudSyncReady}=useFirestoreSync(user,{events:persistableEvents,tasks,courses,cats,sem,theme,showHolidays,settings,exams,assignments,officeHours,quickNotes,journalEntries,sleepSettings,sleepDayData,dashPriorities,dashLayout},syncSetters);
 
   useEffect(()=>{setAc(p=>{const n=new Set(p);Object.keys(cats).forEach(k=>n.add(k));n.add("_holidays");n.add("_officehours");return n;});},[cats]);
   useEffect(()=>{
@@ -743,10 +751,10 @@ function App(){
     // make ldForUser return an empty record and corrupt local-first detection.
     if(!cloudSyncReady) return;
     const ts=Date.now();
-    const data={events:persistableEvents,tasks,courses,cats,sem,theme,showHolidays,settings,exams,assignments,officeHours,quickNotes,journalEntries,sleepSettings,sleepDayData,_ts:ts};
+    const data={events:persistableEvents,tasks,courses,cats,sem,theme,showHolidays,settings,exams,assignments,officeHours,quickNotes,journalEntries,sleepSettings,sleepDayData,dashPriorities,dashLayout,_ts:ts};
     svForUser(user?.uid||(isGuest?"guest":null),data);
     if(user)upload(data);
-  },[persistableEvents,tasks,courses,cats,sem,theme,showHolidays,settings,exams,assignments,officeHours,quickNotes,journalEntries,sleepSettings,sleepDayData,user,cloudSyncReady]);
+  },[persistableEvents,tasks,courses,cats,sem,theme,showHolidays,settings,exams,assignments,officeHours,quickNotes,journalEntries,sleepSettings,sleepDayData,dashPriorities,dashLayout,user,cloudSyncReady]);
 
 
 
@@ -1048,8 +1056,8 @@ function App(){
             <div onClick={()=>setViewOpen(false)} style={{position:"fixed",inset:0,zIndex:499}}/>
             <div style={{position:"absolute",top:"100%",right:0,marginTop:4,background:T.mb,border:`1px solid ${T.bd}`,
               borderRadius:8,boxShadow:"0 8px 24px rgba(0,0,0,0.18)",zIndex:500,minWidth:140}}>
-              {[["day","Day","D"],["week","Week","W"],["month","Month","M"],["year","Year","Y"],["schedule","Schedule","S"],["semester","Semester",""],["tasks-dashboard","Tasks",""],["notes-dashboard","Notes",""],["focus-dashboard","Focus",""]].map(([k,label,shortcut])=>
-                <div key={k} onClick={()=>{if(k!=="tasks-dashboard"&&k!=="notes-dashboard"&&k!=="focus-dashboard")lastCalViewRef.current=k;setView(k);setViewOpen(false);}}
+              {[["day","Day","D"],["week","Week","W"],["month","Month","M"],["year","Year","Y"],["schedule","Schedule","S"],["semester","Semester",""],["tasks-dashboard","Tasks",""],["notes-dashboard","Notes",""],["focus-dashboard","Focus",""],["home","Dashboard",""]].map(([k,label,shortcut])=>
+                <div key={k} onClick={()=>{if(k!=="tasks-dashboard"&&k!=="notes-dashboard"&&k!=="focus-dashboard"&&k!=="home")lastCalViewRef.current=k;setView(k);setViewOpen(false);}}
                   style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"7px 12px",cursor:"pointer",
                     background:view===k?`${T.ac}18`:"transparent",
                     borderLeft:view===k?`3px solid ${T.ac}`:"3px solid transparent"}}>
@@ -1061,17 +1069,18 @@ function App(){
             </div>
           </>}
         </div>
-        {/* Calendar / Tasks / Notes / Focus icon toggle */}
+        {/* Calendar / Tasks / Notes / Focus / Dashboard icon toggle */}
         <div style={{display:"flex",background:T.b3,border:`1px solid ${T.bd}`,borderRadius:20,padding:2,gap:2}}>
           {[
+            {key:"home",title:"Dashboard",svg:<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>},
             {key:"cal",title:"Calendar",svg:<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>},
             {key:"tasks",title:"Tasks",svg:<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>},
             {key:"notes",title:"Notes",svg:<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>},
             {key:"focus",title:"Focus",svg:<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>},
           ].map(({key,title,svg})=>{
-            const isActive=(key==="cal"&&view!=="tasks-dashboard"&&view!=="notes-dashboard"&&view!=="focus-dashboard")||(key==="tasks"&&view==="tasks-dashboard")||(key==="notes"&&view==="notes-dashboard")||(key==="focus"&&view==="focus-dashboard");
+            const isActive=(key==="home"&&view==="home")||(key==="cal"&&view!=="tasks-dashboard"&&view!=="notes-dashboard"&&view!=="focus-dashboard"&&view!=="home")||(key==="tasks"&&view==="tasks-dashboard")||(key==="notes"&&view==="notes-dashboard")||(key==="focus"&&view==="focus-dashboard");
             return <button key={key} title={title}
-              onClick={()=>{if(key==="cal"){setView(lastCalViewRef.current||"week");}else if(key==="tasks"){setView("tasks-dashboard");}else if(key==="notes"){setView("notes-dashboard");}else{setView("focus-dashboard");}}}
+              onClick={()=>{if(key==="home"){setView("home");}else if(key==="cal"){setView(lastCalViewRef.current||"week");}else if(key==="tasks"){setView("tasks-dashboard");}else if(key==="notes"){setView("notes-dashboard");}else{setView("focus-dashboard");}}}
               style={{width:30,height:30,borderRadius:16,border:"none",cursor:"pointer",
                 background:isActive?T.ac:"transparent",color:isActive?T.bg:T.t2,
                 display:"flex",alignItems:"center",justifyContent:"center",transition:"all 0.15s"}}>
@@ -1171,6 +1180,7 @@ function App(){
           {view==="tasks-dashboard"&&<TasksDashboard T={T} MO={MO} SE={SE} tasks={tasks} cats={cats} courses={courses} aT={aT} uT={uT} dT={dT} tT={tT} pushUndo={pushUndo}/>}
           {view==="notes-dashboard"&&<NotesDashboard T={T} MO={MO} SE={SE} quickNotes={quickNotes} setQuickNotes={setQuickNotes} journalEntries={journalEntries} setJournalEntries={setJournalEntries}/>}
           {view==="focus-dashboard"&&<FocusDashboard T={T} MO={MO} SE={SE} tasks={tasks} events={allEvents} courses={courses} cats={cats} exams={exams} assignments={assignments} sem={sem} setChatOpen={setChatOpen} sleepSettings={sleepSettings} setSleepSettings={setSleepSettings} sleepDayData={sleepDayData} setSleepDayData={setSleepDayData} setModal={setModal}/>}
+          {view==="home"&&<DashboardView T={T} MO={MO} SE={SE} user={user} allEvents={allEvents} tasks={tasks} cats={cats} courses={courses} dashPriorities={dashPriorities} setDashPriorities={setDashPriorities} sleepSettings={sleepSettings} sleepDayData={sleepDayData} sem={sem} exams={exams} assignments={assignments} dashLayout={dashLayout} setDashLayout={setDashLayout}/>}
         </>}
       </div>
     </div>
@@ -2953,7 +2963,9 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
   const[charCount,setCharCount]=useState(0);
   const[linkTip,setLinkTip]=useState(null);
   const[curTextColor,setCurTextColor]=useState(T.tx||"#111111");
+  const[pageBreaks,setPageBreaks]=useState([]);
   const rulerRef=useRef(null);
+  const PAGE_H=1056;
   const FSIZES=["8","9","10","11","12","14","16","18","20","24","28","36","48","72"];
   const FONTS=[
     ["Sans-serif","'DM Sans',Arial,sans-serif"],
@@ -3023,6 +3035,17 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
     document.addEventListener("mousemove",onMove);
     document.addEventListener("mouseup",onUp);
     return()=>{document.removeEventListener("mousemove",onMove);document.removeEventListener("mouseup",onUp);};
+  },[]);
+  // Track editor height to render Google-Docs-style page breaks
+  useEffect(()=>{
+    if(!editorRef.current)return;
+    const ro=new ResizeObserver(()=>{
+      const h=editorRef.current?.scrollHeight||0;
+      const count=Math.max(0,Math.floor(h/PAGE_H));
+      setPageBreaks(Array.from({length:count},(_,i)=>(i+1)*PAGE_H));
+    });
+    ro.observe(editorRef.current);
+    return()=>ro.disconnect();
   },[]);
   useEffect(()=>{
     if(!showTable)return;
@@ -3167,8 +3190,12 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
   };
 
   const applyFontSize=(px)=>{
-    restoreRange();sty();
+    restoreRange();
+    // Temporarily disable styleWithCSS so execCommand('fontSize') creates <font size="7">
+    // instead of <span style="font-size: xx-large">, which our querySelector can then find and replace.
+    try{document.execCommand('styleWithCSS',false,false);}catch(e){}
     document.execCommand('fontSize',false,'7');
+    try{document.execCommand('styleWithCSS',false,true);}catch(e){}
     if(editorRef.current){
       editorRef.current.querySelectorAll('font[size="7"]').forEach(font=>{
         const span=document.createElement('span');
@@ -3695,8 +3722,8 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
       <button onClick={replaceAll} style={{padding:"5px 10px",borderRadius:5,border:`1px solid ${T.bd}`,background:"transparent",color:T.t2,fontSize:"0.82rem",cursor:"pointer"}}>All</button></>}
       <button onClick={()=>{setShowFind(false);setShowReplace(false);}} style={{padding:"5px 9px",borderRadius:5,border:`1px solid ${T.bd}`,background:"transparent",color:T.t2,fontSize:"0.85rem",cursor:"pointer"}}>✕</button>
     </div>}
-    {/* Document page area */}
-    <div style={{flex:1,background:outerBg,overflowY:"auto",padding:isME?"8px 0":"20px 0",
+    {/* Document page area — scrollable, Google-Docs-style */}
+    <div className="rte-scroll" style={{flex:1,background:outerBg,overflowY:"auto",padding:isME?"8px 0":"20px 0",
       display:"flex",justifyContent:"center",position:"relative"}}>
       <div style={{width:"100%",maxWidth:isME?"100%":760,margin:isME?0:"0 auto",display:"flex",flexDirection:"column",gap:isME?0:8}}>
         <div ref={rulerRef} style={{height:34,margin:0,border:`1px solid ${T.bd}`,borderRadius:6,
@@ -3733,9 +3760,19 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
               display:"flex",alignItems:"center",justifyContent:"center",borderRadius:6,
               background:T.b3,border:`1px solid ${T.bd}`}}>▶</div>
         </div>
+      {/* Page: grows naturally with content, no flex height constraints */}
       <div style={{width:"100%",maxWidth:isME?"100%":760,margin:isME?0:"0 auto",
         background:pageBg,boxShadow:pageShadow,borderRadius:isME?0:4,
-        minHeight:minHeight||400,display:"flex",flexDirection:"column"}}>
+        minHeight:minHeight||400,position:"relative"}}>
+        {/* Page-break separators every PAGE_H px — visual only, pointer-events none */}
+        {!isME&&pageBreaks.map(y=>(
+          <div key={y} style={{position:"absolute",left:0,right:0,top:y,height:24,
+            background:outerBg,zIndex:5,pointerEvents:"none",
+            boxShadow:`inset 0 4px 8px rgba(0,0,0,0.08),inset 0 -4px 8px rgba(0,0,0,0.08)`,
+            display:"flex",alignItems:"center",justifyContent:"center"}}>
+            <span style={{fontSize:"0.55rem",color:T.t3,fontFamily:MO,letterSpacing:"0.08em",userSelect:"none",opacity:0.7}}>— page break —</span>
+          </div>
+        ))}
         <div className="rte-wrap" ref={editorRef}
           contentEditable suppressContentEditableWarning
           data-placeholder={placeholder||"Start writing…"}
@@ -3746,7 +3783,7 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
           onMouseDown={handleEditorMouseDown}
           onMouseMove={handleEditorMouseMove}
           onFocus={sty}
-          style={{flex:1,minHeight:minHeight||400,padding:isME?"16px 18px":"32px 48px",color:pageColor,
+          style={{minHeight:minHeight||400,padding:isME?"16px 18px":"32px 48px",color:pageColor,
             fontSize:"0.95rem",lineHeight:1.85,outline:"none",
             fontFamily:"'DM Sans',sans-serif",
             boxSizing:"border-box",cursor:"text",wordBreak:"break-word"}}/>
@@ -6863,6 +6900,570 @@ function NotesDashboard({T,MO,SE,quickNotes,setQuickNotes,journalEntries,setJour
 
       </div>
     </div>}
+  </div>;
+}
+
+// ═══ DASHBOARD HELPERS ═══
+const DASH_WIDGET_TYPES=[
+  {type:"schedule",icon:"📅",label:"Today's Schedule",desc:"Events from your calendar"},
+  {type:"tasks",icon:"✅",label:"Tasks Due",desc:"Overdue and upcoming tasks"},
+  {type:"priorities",icon:"🎯",label:"Priorities",desc:"Personal priority checklist"},
+  {type:"quote",icon:"💬",label:"Quote / Note",desc:"Inspiration or custom note block"},
+  {type:"countdown",icon:"⏳",label:"Countdown",desc:"Days until a date"},
+  {type:"sleep",icon:"🌙",label:"Sleep Summary",desc:"Today's sleep at a glance"},
+  {type:"week",icon:"📆",label:"Week Preview",desc:"This week's upcoming events"},
+  {type:"links",icon:"🔗",label:"Quick Links",desc:"Custom bookmarks & links"},
+];
+
+function DashboardWidgetPicker({T,MO,onClose,onAdd}){
+  return <div style={{position:"fixed",inset:0,zIndex:900,background:T.ov,
+    display:"flex",alignItems:"flex-end",justifyContent:"center"}}
+    onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
+    <div style={{background:T.b3,border:`1px solid ${T.bd}`,borderTopLeftRadius:20,borderTopRightRadius:20,
+      padding:"20px 20px 40px",width:"100%",maxWidth:620,maxHeight:"70vh",overflowY:"auto",
+      boxShadow:"0 -8px 40px rgba(0,0,0,0.22)"}}>
+      <div style={{width:40,height:4,background:T.bd,borderRadius:2,margin:"0 auto 18px"}}/>
+      <h3 style={{fontFamily:"'DM Serif Display',Georgia,serif",fontSize:"1.15rem",color:T.tx,
+        margin:"0 0 18px",textAlign:"center"}}>Add a Widget</h3>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(145px,1fr))",gap:10}}>
+        {DASH_WIDGET_TYPES.map(({type,icon,label,desc})=>(
+          <div key={type} onClick={()=>{onAdd(type);onClose();}}
+            style={{padding:"14px 12px 13px",borderRadius:12,border:`1px solid ${T.bd}`,background:T.b2,
+              cursor:"pointer",textAlign:"center",transition:"all 0.15s"}}>
+            <div style={{fontSize:"1.7rem",marginBottom:7}}>{icon}</div>
+            <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:"0.83rem",color:T.tx,fontWeight:600,marginBottom:3}}>{label}</div>
+            <div style={{fontFamily:MO,fontSize:"0.41rem",color:T.t3,lineHeight:1.4}}>{desc}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  </div>;
+}
+
+function DashboardWidgetEditor({T,MO,widget,onClose,onSave}){
+  const[cfg,setCfg]=useState({...(widget.config||{})});
+  const IS={padding:"8px 11px",borderRadius:8,border:`1px solid ${T.bd}`,background:T.ib,
+    color:T.tx,fontFamily:"'DM Sans',sans-serif",fontSize:"0.87rem",outline:"none",
+    width:"100%",boxSizing:"border-box"};
+  const LB={display:"block",fontFamily:MO,fontSize:"0.46rem",color:T.t3,letterSpacing:"0.06em",
+    textTransform:"uppercase",marginBottom:5,marginTop:14};
+  const ACCENT_COLORS=["#5c4db3","#4ecdc4","#f7d070","#ff6b9d","#6366f1","#22c55e","#ef4444","#f97316"];
+
+  const renderFields=()=>{
+    switch(widget.type){
+      case"quote":return <>
+        <label style={LB}>Quote or Note</label>
+        <textarea value={cfg.text||""} onChange={e=>setCfg(p=>({...p,text:e.target.value}))}
+          rows={4} placeholder="Enter your quote, affirmation, or note…"
+          style={{...IS,resize:"vertical",lineHeight:1.6}}/>
+        <label style={LB}>Attribution (optional)</label>
+        <input value={cfg.author||""} onChange={e=>setCfg(p=>({...p,author:e.target.value}))}
+          placeholder="— Author name" style={IS}/>
+        <label style={LB}>Accent Color</label>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:4}}>
+          {ACCENT_COLORS.map(c=>(
+            <div key={c} onClick={()=>setCfg(p=>({...p,accent:c}))}
+              style={{width:26,height:26,borderRadius:"50%",background:c,cursor:"pointer",
+                boxSizing:"border-box",border:cfg.accent===c?`3px solid ${T.tx}`:"3px solid transparent",
+                transition:"border 0.12s"}}/>
+          ))}
+        </div>
+      </>;
+      case"countdown":return <>
+        <label style={LB}>Label</label>
+        <input value={cfg.label||""} onChange={e=>setCfg(p=>({...p,label:e.target.value}))}
+          placeholder="e.g. Finals Week, Spring Break, Summer…" style={IS}/>
+        <label style={LB}>Target Date</label>
+        <input type="date" value={cfg.date||""} onChange={e=>setCfg(p=>({...p,date:e.target.value}))} style={IS}/>
+        <label style={LB}>Accent Color</label>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:4}}>
+          {ACCENT_COLORS.map(c=>(
+            <div key={c} onClick={()=>setCfg(p=>({...p,accent:c}))}
+              style={{width:26,height:26,borderRadius:"50%",background:c,cursor:"pointer",
+                boxSizing:"border-box",border:cfg.accent===c?`3px solid ${T.tx}`:"3px solid transparent"}}/>
+          ))}
+        </div>
+      </>;
+      case"links":return <>
+        <label style={LB}>Section Title</label>
+        <input value={cfg.title||""} onChange={e=>setCfg(p=>({...p,title:e.target.value}))}
+          placeholder="Quick Links" style={{...IS,marginBottom:4}}/>
+        <label style={LB}>Links</label>
+        {(cfg.links||[]).map((lnk,i)=>(
+          <div key={i} style={{display:"flex",gap:6,marginBottom:7,alignItems:"center"}}>
+            <input value={lnk.icon||""} onChange={e=>{const l=[...(cfg.links||[])];l[i]={...l[i],icon:e.target.value};setCfg(p=>({...p,links:l}));}}
+              placeholder="🔗" style={{...IS,width:46,textAlign:"center",flex:"none"}}/>
+            <input value={lnk.label||""} onChange={e=>{const l=[...(cfg.links||[])];l[i]={...l[i],label:e.target.value};setCfg(p=>({...p,links:l}));}}
+              placeholder="Label" style={{...IS,flex:1}}/>
+            <input value={lnk.url||""} onChange={e=>{const l=[...(cfg.links||[])];l[i]={...l[i],url:e.target.value};setCfg(p=>({...p,links:l}));}}
+              placeholder="https://…" style={{...IS,flex:2}}/>
+            <button onClick={()=>{const l=(cfg.links||[]).filter((_,j)=>j!==i);setCfg(p=>({...p,links:l}));}}
+              style={{background:"none",border:"none",color:"#d94f4f",cursor:"pointer",fontSize:"1.1rem",flexShrink:0,padding:"0 2px"}}>×</button>
+          </div>
+        ))}
+        <button onClick={()=>setCfg(p=>({...p,links:[...(p.links||[]),{icon:"🔗",label:"",url:""}]}))}
+          style={{marginTop:4,padding:"6px 12px",borderRadius:8,border:`1px solid ${T.bd}`,background:T.b2,
+            color:T.t2,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontSize:"0.82rem"}}>+ Add Link</button>
+      </>;
+      default:return <p style={{color:T.t3,fontFamily:"'DM Sans',sans-serif",fontSize:"0.85rem",fontStyle:"italic"}}>This widget has no extra settings.</p>;
+    }
+  };
+
+  return <div style={{position:"fixed",inset:0,zIndex:901,background:T.ov,
+    display:"flex",alignItems:"center",justifyContent:"center",padding:16}}
+    onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
+    <div style={{background:T.b3,border:`1px solid ${T.bd}`,borderRadius:18,padding:"24px 24px 20px",
+      width:"100%",maxWidth:480,maxHeight:"88vh",overflowY:"auto",
+      boxShadow:"0 12px 48px rgba(0,0,0,0.28)"}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:18}}>
+        <h3 style={{fontFamily:"'DM Serif Display',Georgia,serif",fontSize:"1.15rem",color:T.tx,margin:0}}>Edit Widget</h3>
+        <button onClick={onClose} style={{background:"none",border:"none",color:T.t2,cursor:"pointer",fontSize:"1.3rem",padding:4,lineHeight:1}}>×</button>
+      </div>
+      {renderFields()}
+      <div style={{display:"flex",gap:8,marginTop:22,justifyContent:"flex-end"}}>
+        <button onClick={onClose}
+          style={{padding:"8px 18px",borderRadius:9,border:`1px solid ${T.bd}`,background:"transparent",
+            color:T.t2,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontSize:"0.85rem"}}>Cancel</button>
+        <button onClick={()=>onSave(cfg)}
+          style={{padding:"8px 22px",borderRadius:9,border:"none",background:T.ac,color:T.bg,
+            cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontSize:"0.85rem",fontWeight:600}}>Save</button>
+      </div>
+    </div>
+  </div>;
+}
+
+// ═══ DASHBOARD VIEW ═══
+function DashboardView({T,MO,SE,user,allEvents,tasks,cats,courses,dashPriorities,setDashPriorities,sleepSettings,sleepDayData,sem,exams,assignments,dashLayout,setDashLayout}){
+  const today=$d(new Date());
+  const todayLabel=new Date().toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric",year:"numeric"});
+  const firstName=user?.displayName?.split(" ")[0]||user?.email?.split("@")[0]||"there";
+  const hours=new Date().getHours();
+  const greeting=hours<12?"Good morning":hours<17?"Good afternoon":"Good evening";
+
+  // ── Derived data ──
+  const todayEvents=useMemo(()=>allEvents
+    .filter(e=>e.date===today&&!e._taskDueId&&e.category!=="_sleep"&&!e._sleepId)
+    .sort((a,b)=>{
+      if(a._allDay&&!b._allDay)return -1;if(!a._allDay&&b._allDay)return 1;
+      return(a.startHour*60+(a.startMin||0))-(b.startHour*60+(b.startMin||0));
+    }),[allEvents,today]);
+
+  const overdueTasks=useMemo(()=>tasks
+    .filter(t=>!t.done&&t.date&&t.date<today)
+    .sort((a,b)=>a.date<b.date?-1:1),[tasks,today]);
+
+  const todayTasks=useMemo(()=>tasks
+    .filter(t=>!t.done&&t.date&&t.date===today),[tasks,today]);
+
+  const weekTasks=useMemo(()=>{
+    const next7=$d($a(new Date(),7));
+    return tasks.filter(t=>!t.done&&t.date&&t.date>today&&t.date<=next7)
+      .sort((a,b)=>a.date<b.date?-1:1);
+  },[tasks,today]);
+
+  const todaySleep=useMemo(()=>{
+    if(!sleepSettings?.enabled)return null;
+    const ovr=sleepDayData?.[today]||{};
+    if(ovr.skip)return null;
+    const dow=new Date(today+"T12:00").getDay();
+    const wkSc=sleepSettings.weekSchedule?.[dow];
+    const bt=ovr.bedtime||wkSc?.bedtime||sleepSettings.bedtime||"22:00";
+    const wt=ovr.wakeTime||wkSc?.wakeTime||sleepSettings.wakeTime||"07:00";
+    const[bH,bM]=bt.split(":").map(Number);
+    const[wH,wM]=wt.split(":").map(Number);
+    let wMins=wH*60+wM,bMins=bH*60+bM;
+    if(wMins<=bMins)wMins+=1440;
+    const planned=wMins-bMins;
+    const actual=(ovr.actualHours!=null&&ovr.actualMins!=null)?(ovr.actualHours*60+ovr.actualMins):null;
+    return{bedtime:bt,wakeTime:wt,planned,actual};
+  },[sleepSettings,sleepDayData,today]);
+
+  // ── Category helpers ──
+  const getCatColor=(cat)=>cats[cat]?.color||"#aaa5b5";
+  const getCatLabel=(cat)=>{
+    if(!cat)return "";
+    const c=courses.find(x=>x.id===cat);
+    if(c)return c.code||c.name||"";
+    return cats[cat]?.label||cat;
+  };
+
+  // ── Priorities helpers ──
+  const[newP,setNewP]=useState("");
+  const addPriority=()=>{if(!newP.trim())return;setDashPriorities(p=>[...p,{id:gi(),text:newP.trim(),done:false}]);setNewP("");};
+  const togglePriority=(id)=>setDashPriorities(p=>p.map(x=>x.id===id?{...x,done:!x.done}:x));
+  const deletePriority=(id)=>setDashPriorities(p=>p.filter(x=>x.id!==id));
+  const movePriority=(id,dir)=>setDashPriorities(p=>{
+    const i=p.findIndex(x=>x.id===id);if(i<0)return p;
+    const ni=i+dir;if(ni<0||ni>=p.length)return p;
+    const n=[...p];[n[i],n[ni]]=[n[ni],n[i]];return n;
+  });
+
+  // ── Layout helpers ──
+  const[editMode,setEditMode]=useState(false);
+  const[showPicker,setShowPicker]=useState(false);
+  const[editWidget,setEditWidget]=useState(null);
+  const moveWidget=(id,dir)=>setDashLayout(p=>{
+    const i=p.findIndex(w=>w.id===id);if(i<0)return p;
+    const ni=i+dir;if(ni<0||ni>=p.length)return p;
+    const n=[...p];[n[i],n[ni]]=[n[ni],n[i]];return n;
+  });
+  const removeWidget=(id)=>setDashLayout(p=>p.filter(w=>w.id!==id));
+  const addWidget=(type)=>setDashLayout(p=>[...p,{id:gi(),type,config:{},width:"half"}]);
+  const updateWidgetConfig=(id,cfg)=>setDashLayout(p=>p.map(w=>w.id===id?{...w,config:{...w.config,...cfg}}:w));
+  const toggleWidth=(id)=>setDashLayout(p=>p.map(w=>w.id===id?{...w,width:w.width==="full"?"half":"full"}:w));
+
+  // ── Widget content renderers ──
+  const WTitle=({icon,label,sub})=>(
+    <div style={{marginBottom:14}}>
+      <div style={{display:"flex",alignItems:"center",gap:7}}>
+        <span style={{fontSize:"1rem"}}>{icon}</span>
+        <span style={{fontFamily:"'DM Serif Display',Georgia,serif",fontSize:"1.05rem",color:T.tx,fontWeight:700,letterSpacing:"-0.01em"}}>{label}</span>
+      </div>
+      {sub&&<p style={{fontFamily:"'DM Sans',sans-serif",fontSize:"0.77rem",color:T.t3,margin:"3px 0 0 27px",lineHeight:1.4}}>{sub}</p>}
+    </div>
+  );
+  const Empty=({msg})=><p style={{fontFamily:"'DM Sans',sans-serif",fontSize:"0.83rem",color:T.t3,margin:0,fontStyle:"italic",lineHeight:1.5}}>{msg}</p>;
+
+  const renderSchedule=()=>(
+    <><WTitle icon="📅" label="Today's Schedule"/>
+    {todayEvents.length===0?<Empty msg="Nothing scheduled — enjoy the free time!"/>
+    :todayEvents.map(ev=>{
+      const col=getCatColor(ev.category);
+      return <div key={ev.id} style={{display:"flex",gap:10,alignItems:"flex-start",marginBottom:8,
+        padding:"9px 12px",borderRadius:9,background:`${col}14`,borderLeft:`3px solid ${col}`}}>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:"0.87rem",color:T.tx,fontWeight:600,
+            whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{ev.title}</div>
+          <div style={{fontFamily:MO,fontSize:"0.44rem",color:T.t3,marginTop:2}}>
+            {ev._allDay?"All day":$t(ev.startHour,ev.startMin||0)+" – "+$t(ev.endHour,ev.endMin||0)}
+            {getCatLabel(ev.category)&&<span style={{marginLeft:6,color:col,fontWeight:600}}>{getCatLabel(ev.category)}</span>}
+          </div>
+        </div>
+      </div>;
+    })}</>
+  );
+
+  const renderTasks=()=>{
+    const allDue=[...overdueTasks,...todayTasks];
+    return <><WTitle icon="✅" label="Tasks Due"/>
+    {allDue.length===0&&weekTasks.length===0?<Empty msg="No tasks due — you're all caught up! 🎉"/>:<>
+      {allDue.length>0&&<>
+        <p style={{fontFamily:MO,fontSize:"0.43rem",color:"#d94f4f",letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:7,fontWeight:700}}>⚠ Overdue / Today</p>
+        {allDue.map(t=>{
+          const col=getCatColor(t.category);
+          return <div key={t.id} style={{display:"flex",gap:8,alignItems:"center",marginBottom:6,
+            padding:"8px 11px",borderRadius:9,background:"rgba(217,79,79,0.07)",borderLeft:"3px solid #d94f4f"}}>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:"0.85rem",color:T.tx,fontWeight:600,
+                whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{t.title}</div>
+              {t.date&&<div style={{fontFamily:MO,fontSize:"0.43rem",color:T.t3,marginTop:1}}>
+                {t.date<today?"Overdue · due "+$p(t.date).toLocaleDateString("en-US",{month:"short",day:"numeric"}):"Due today"}
+                {getCatLabel(t.category)&&<span style={{marginLeft:6,color:col}}> · {getCatLabel(t.category)}</span>}
+              </div>}
+            </div>
+          </div>;
+        })}
+      </>}
+      {weekTasks.length>0&&<>
+        <p style={{fontFamily:MO,fontSize:"0.43rem",color:T.t2,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:7,marginTop:allDue.length?12:0,fontWeight:700}}>Coming Up This Week</p>
+        {weekTasks.slice(0,5).map(t=>{
+          const col=getCatColor(t.category);
+          return <div key={t.id} style={{display:"flex",gap:8,alignItems:"center",marginBottom:6,
+            padding:"8px 11px",borderRadius:9,background:`${col}10`,borderLeft:`3px solid ${col}`}}>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:"0.85rem",color:T.tx,fontWeight:500,
+                whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{t.title}</div>
+              {t.date&&<div style={{fontFamily:MO,fontSize:"0.43rem",color:T.t3,marginTop:1}}>
+                {$p(t.date).toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"})}
+                {getCatLabel(t.category)&&<span style={{marginLeft:6,color:col}}> · {getCatLabel(t.category)}</span>}
+              </div>}
+            </div>
+          </div>;
+        })}
+        {weekTasks.length>5&&<p style={{fontFamily:MO,fontSize:"0.43rem",color:T.t3,marginTop:6}}>+{weekTasks.length-5} more this week</p>}
+      </>}
+    </>}</>;
+  };
+
+  const renderPriorities=()=>(
+    <><WTitle icon="🎯" label="My Priorities" sub="What matters most right now"/>
+    {dashPriorities.length>0&&<div style={{marginBottom:12}}>
+      {dashPriorities.map((p,idx)=>(
+        <div key={p.id} style={{display:"flex",alignItems:"center",gap:8,padding:"9px 11px",
+          borderRadius:9,marginBottom:5,
+          background:p.done?`${T.ac}08`:T.b2,
+          border:`1px solid ${p.done?T.bd:T.ac+"2a"}`,
+          opacity:p.done?0.55:1,transition:"all 0.18s"}}>
+          <div onClick={()=>togglePriority(p.id)}
+            style={{width:19,height:19,borderRadius:6,flexShrink:0,cursor:"pointer",
+              background:p.done?T.ac:"transparent",
+              border:`2px solid ${p.done?T.ac:T.t3}`,
+              display:"flex",alignItems:"center",justifyContent:"center",transition:"all 0.18s"}}>
+            {p.done&&<span style={{color:T.bg,fontSize:"0.6rem",fontWeight:800}}>✓</span>}
+          </div>
+          <span style={{flex:1,fontFamily:"'DM Sans',sans-serif",fontSize:"0.89rem",color:T.tx,
+            textDecoration:p.done?"line-through":"none",lineHeight:1.4,wordBreak:"break-word"}}>{p.text}</span>
+          <div style={{display:"flex",gap:1,flexShrink:0}}>
+            <button onClick={()=>movePriority(p.id,-1)} disabled={idx===0} style={{background:"none",border:"none",cursor:idx===0?"default":"pointer",color:T.t3,padding:"2px 4px",fontSize:"0.72rem",opacity:idx===0?0.25:0.8}}>↑</button>
+            <button onClick={()=>movePriority(p.id,1)} disabled={idx===dashPriorities.length-1} style={{background:"none",border:"none",cursor:idx===dashPriorities.length-1?"default":"pointer",color:T.t3,padding:"2px 4px",fontSize:"0.72rem",opacity:idx===dashPriorities.length-1?0.25:0.8}}>↓</button>
+            <button onClick={()=>deletePriority(p.id)} style={{background:"none",border:"none",cursor:"pointer",color:"#d94f4f",padding:"2px 4px",fontSize:"0.85rem",opacity:0.7}}>×</button>
+          </div>
+        </div>
+      ))}
+    </div>}
+    <div style={{display:"flex",gap:8}}>
+      <input value={newP} onChange={e=>setNewP(e.target.value)} placeholder="Add a priority…"
+        onKeyDown={e=>e.key==="Enter"&&addPriority()}
+        style={{flex:1,padding:"9px 12px",borderRadius:9,border:`1px solid ${T.bd}`,
+          background:T.ib,color:T.tx,fontFamily:"'DM Sans',sans-serif",fontSize:"0.87rem",outline:"none"}}/>
+      <button onClick={addPriority} style={{padding:"9px 16px",borderRadius:9,border:"none",
+        background:T.ac,color:T.bg,fontWeight:600,cursor:"pointer",
+        fontFamily:"'DM Sans',sans-serif",fontSize:"0.85rem",flexShrink:0}}>Add</button>
+    </div></>
+  );
+
+  const renderQuote=(w)=>{
+    const cfg=w.config||{};
+    const accent=cfg.accent||T.ac;
+    return <div style={{padding:"6px 0"}}>
+      <div style={{borderLeft:`4px solid ${accent}`,paddingLeft:18,paddingRight:4}}>
+        <p style={{fontFamily:"'DM Serif Display',Georgia,serif",fontSize:"1.12rem",color:T.tx,
+          lineHeight:1.65,margin:0,fontStyle:"italic"}}>
+          {cfg.text||<span style={{color:T.t3,fontStyle:"italic",fontSize:"0.9rem"}}>Click ✏ Edit to add your quote…</span>}
+        </p>
+        {cfg.author&&<p style={{fontFamily:MO,fontSize:"0.46rem",color:T.t3,marginTop:10,letterSpacing:"0.06em"}}>— {cfg.author}</p>}
+      </div>
+    </div>;
+  };
+
+  const renderCountdown=(w)=>{
+    const cfg=w.config||{};
+    const accent=cfg.accent||T.ac;
+    if(!cfg.date)return <div style={{textAlign:"center",padding:"20px 0"}}>
+      <span style={{fontSize:"2rem"}}>⏳</span>
+      <p style={{fontFamily:"'DM Sans',sans-serif",fontSize:"0.85rem",color:T.t3,fontStyle:"italic",marginTop:8}}>Click ✏ Edit to set a countdown date</p>
+    </div>;
+    const target=$p(cfg.date);
+    const now=new Date();now.setHours(0,0,0,0);
+    const diff=Math.round((target-now)/(86400000));
+    const past=diff<0;
+    const pct=past?100:Math.max(2,100-Math.min(100,(diff/90)*100));
+    return <div style={{textAlign:"center",padding:"8px 0"}}>
+      <p style={{fontFamily:MO,fontSize:"0.48rem",color:T.t3,letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:10}}>{cfg.label||"Countdown"}</p>
+      <div style={{display:"inline-flex",alignItems:"baseline",gap:6,marginBottom:6}}>
+        <span style={{fontFamily:"'DM Serif Display',Georgia,serif",fontSize:"3.6rem",
+          color:past?"#d94f4f":accent,fontWeight:700,lineHeight:1,letterSpacing:"-0.04em"}}>
+          {Math.abs(diff)}
+        </span>
+        <span style={{fontFamily:"'DM Sans',sans-serif",fontSize:"0.9rem",color:T.t2,fontWeight:500}}>
+          {Math.abs(diff)===1?"day":"days"}
+        </span>
+      </div>
+      <p style={{fontFamily:"'DM Sans',sans-serif",fontSize:"0.84rem",color:T.t2,margin:"0 0 10px"}}>
+        {past?"since":"until"} {target.toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"})}
+      </p>
+      <div style={{height:5,background:T.b2,borderRadius:3,overflow:"hidden",maxWidth:200,margin:"0 auto"}}>
+        <div style={{height:"100%",width:`${pct}%`,background:past?"#d94f4f":accent,borderRadius:3,transition:"width 0.6s"}}/>
+      </div>
+    </div>;
+  };
+
+  const renderSleep=()=>{
+    if(!sleepSettings?.enabled)return <div style={{textAlign:"center",padding:"16px 0"}}>
+      <span style={{fontSize:"2rem"}}>🌙</span>
+      <p style={{fontFamily:"'DM Sans',sans-serif",fontSize:"0.84rem",color:T.t3,fontStyle:"italic",marginTop:8}}>Enable sleep tracking in the Focus view</p>
+    </div>;
+    if(!todaySleep)return <><WTitle icon="🌙" label="Sleep"/><Empty msg="No sleep data logged for today."/></>;
+    const fmtMins=m=>`${Math.floor(m/60)}h ${m%60}m`;
+    const mins=todaySleep.actual??todaySleep.planned;
+    const pct=Math.min(100,Math.round((mins/480)*100));
+    const sleepCol=mins>=420?"#4ecdc4":mins>=360?T.ac:"#d94f4f";
+    return <><WTitle icon="🌙" label="Sleep Summary"/>
+    <div style={{textAlign:"center",marginBottom:12}}>
+      <span style={{fontFamily:"'DM Serif Display',Georgia,serif",fontSize:"2.6rem",color:sleepCol,fontWeight:700,lineHeight:1,letterSpacing:"-0.03em"}}>{fmtMins(mins)}</span>
+      <p style={{fontFamily:MO,fontSize:"0.44rem",color:T.t3,marginTop:4}}>{todaySleep.actual!=null?"Actual":"Planned"}</p>
+    </div>
+    <div style={{height:6,background:T.b2,borderRadius:3,overflow:"hidden",marginBottom:9}}>
+      <div style={{height:"100%",width:`${pct}%`,background:sleepCol,borderRadius:3,transition:"width 0.6s"}}/>
+    </div>
+    <div style={{display:"flex",justifyContent:"space-between"}}>
+      <span style={{fontFamily:MO,fontSize:"0.43rem",color:T.t3}}>🌙 {todaySleep.bedtime}</span>
+      <span style={{fontFamily:MO,fontSize:"0.43rem",color:T.t3}}>☀ {todaySleep.wakeTime}</span>
+    </div></>;
+  };
+
+  const renderWeek=()=>{
+    const next7=$d($a(new Date(),7));
+    const upcoming=allEvents
+      .filter(e=>e.date>today&&e.date<=next7&&!e._taskDueId&&e.category!=="_sleep"&&!e._sleepId)
+      .sort((a,b)=>a.date<b.date?-1:a.date>b.date?1:0);
+    return <><WTitle icon="📆" label="Week Preview"/>
+    {upcoming.length===0?<Empty msg="Nothing coming up this week — clear skies ahead!"/>
+    :upcoming.slice(0,6).map(ev=>{
+      const col=getCatColor(ev.category);
+      const d=$p(ev.date);
+      return <div key={ev.id} style={{display:"flex",gap:10,alignItems:"center",marginBottom:7,
+        padding:"8px 12px",borderRadius:9,background:`${col}10`,borderLeft:`3px solid ${col}`}}>
+        <div style={{width:38,flexShrink:0,textAlign:"center"}}>
+          <div style={{fontFamily:MO,fontSize:"0.4rem",color:T.t3,letterSpacing:"0.05em"}}>{d.toLocaleDateString("en-US",{weekday:"short"}).toUpperCase()}</div>
+          <div style={{fontFamily:"'DM Serif Display',Georgia,serif",fontSize:"1.2rem",color:col,fontWeight:700,lineHeight:1}}>{d.getDate()}</div>
+        </div>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:"0.85rem",color:T.tx,fontWeight:500,
+            whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{ev.title}</div>
+          {!ev._allDay&&<div style={{fontFamily:MO,fontSize:"0.42rem",color:T.t3,marginTop:1}}>{$t(ev.startHour,ev.startMin||0)}</div>}
+        </div>
+      </div>;
+    })}</>;
+  };
+
+  const renderLinks=(w)=>{
+    const links=(w.config?.links)||[];
+    return <><WTitle icon="🔗" label={w.config?.title||"Quick Links"}/>
+    {links.length===0?<Empty msg="Click ✏ Edit to add quick links"/>
+    :links.map((lnk,i)=>(
+      <a key={i} href={lnk.url||"#"} target="_blank" rel="noopener noreferrer"
+        style={{display:"flex",alignItems:"center",gap:9,padding:"9px 11px",marginBottom:6,
+          borderRadius:9,background:T.b2,border:`1px solid ${T.bd}`,
+          textDecoration:"none",color:T.tx,transition:"background 0.12s"}}>
+        <span style={{fontSize:"1rem",flexShrink:0}}>{lnk.icon||"🔗"}</span>
+        <span style={{fontFamily:"'DM Sans',sans-serif",fontSize:"0.86rem",color:T.ac,fontWeight:500,
+          whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{lnk.label||lnk.url||"Link"}</span>
+      </a>
+    ))}</>;
+  };
+
+  const renderWidget=(w)=>{
+    switch(w.type){
+      case"schedule":return renderSchedule();
+      case"tasks":return renderTasks();
+      case"priorities":return renderPriorities();
+      case"quote":return renderQuote(w);
+      case"countdown":return renderCountdown(w);
+      case"sleep":return renderSleep();
+      case"week":return renderWeek();
+      case"links":return renderLinks(w);
+      default:return null;
+    }
+  };
+
+  // ── Widget card shell (edit controls overlay) ──
+  const WCard=({w,children})=>{
+    const idx=dashLayout.findIndex(x=>x.id===w.id);
+    const isFirst=idx===0;const isLast=idx===dashLayout.length-1;
+    const canEdit=["quote","countdown","links"].includes(w.type);
+    return <div style={{background:T.b3,border:`1px solid ${editMode?T.ac+"55":T.bd}`,borderRadius:14,
+      overflow:"hidden",position:"relative",
+      boxShadow:editMode?"0 0 0 2px "+T.ac+"22,0 4px 16px rgba(0,0,0,0.08)":"0 1px 4px rgba(0,0,0,0.06)",
+      transition:"box-shadow 0.18s,border-color 0.18s"}}>
+      {editMode&&<div style={{position:"absolute",top:8,right:8,display:"flex",gap:4,zIndex:10,background:T.b3,
+        borderRadius:8,padding:"3px 4px",border:`1px solid ${T.bd}`,boxShadow:"0 2px 8px rgba(0,0,0,0.12)"}}>
+        <button onClick={()=>moveWidget(w.id,-1)} disabled={isFirst} title="Move up"
+          style={{width:24,height:24,borderRadius:5,border:"none",background:"transparent",
+            cursor:isFirst?"default":"pointer",color:T.t2,fontSize:"0.75rem",opacity:isFirst?0.25:1,display:"flex",alignItems:"center",justifyContent:"center"}}>↑</button>
+        <button onClick={()=>moveWidget(w.id,1)} disabled={isLast} title="Move down"
+          style={{width:24,height:24,borderRadius:5,border:"none",background:"transparent",
+            cursor:isLast?"default":"pointer",color:T.t2,fontSize:"0.75rem",opacity:isLast?0.25:1,display:"flex",alignItems:"center",justifyContent:"center"}}>↓</button>
+        <button onClick={()=>toggleWidth(w.id)} title={w.width==="full"?"Make half-width":"Make full-width"}
+          style={{width:24,height:24,borderRadius:5,border:"none",background:"transparent",
+            cursor:"pointer",color:T.ac,fontSize:"0.62rem",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700}}>
+          {w.width==="full"?"◼":"◼◼"}
+        </button>
+        {canEdit&&<button onClick={()=>setEditWidget(w)} title="Edit widget"
+          style={{width:24,height:24,borderRadius:5,border:"none",background:"transparent",
+            cursor:"pointer",color:T.t2,fontSize:"0.72rem",display:"flex",alignItems:"center",justifyContent:"center"}}>✏</button>}
+        <button onClick={()=>removeWidget(w.id)} title="Remove widget"
+          style={{width:24,height:24,borderRadius:5,border:"none",background:"transparent",
+            cursor:"pointer",color:"#d94f4f",fontSize:"0.9rem",display:"flex",alignItems:"center",justifyContent:"center",opacity:0.8}}>×</button>
+      </div>}
+      <div style={{padding:"18px 20px",paddingTop:editMode?46:18}}>{children}</div>
+    </div>;
+  };
+
+  // ── Stat chips in hero ──
+  const dueCnt=overdueTasks.length+todayTasks.length;
+  const chips=[
+    todayEvents.length>0&&{icon:"📅",label:`${todayEvents.length} event${todayEvents.length!==1?"s":""}`,col:T.ac},
+    dueCnt>0&&{icon:"⚠",label:`${dueCnt} due`,col:"#d94f4f"},
+    weekTasks.length>0&&{icon:"📌",label:`${weekTasks.length} this week`,col:T.t2},
+  ].filter(Boolean);
+
+  return <div style={{flex:1,overflowY:"auto",background:T.bg,scrollbarWidth:"thin",scrollbarColor:`${T.ac}44 transparent`}}>
+
+    {/* ─── Hero Banner ─── */}
+    <div style={{background:`linear-gradient(135deg,${T.ac}1c 0%,${T.ac}06 55%,${T.bg} 100%)`,
+      borderBottom:`1px solid ${T.bd}`,padding:"36px 32px 28px",position:"relative",overflow:"hidden"}}>
+      {/* Decorative orbs */}
+      <div style={{position:"absolute",top:-70,right:-50,width:260,height:260,borderRadius:"50%",background:`${T.ac}0d`,pointerEvents:"none"}}/>
+      <div style={{position:"absolute",bottom:-80,left:30,width:220,height:220,borderRadius:"50%",background:`${T.ac}07`,pointerEvents:"none"}}/>
+      <div style={{position:"absolute",top:10,right:220,width:100,height:100,borderRadius:"50%",background:`${T.ac}05`,pointerEvents:"none"}}/>
+      <div style={{position:"relative",display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:16,flexWrap:"wrap"}}>
+        <div>
+          <p style={{fontFamily:MO,fontSize:"0.5rem",color:T.ac,letterSpacing:"0.13em",textTransform:"uppercase",marginBottom:8,opacity:0.9}}>{todayLabel}</p>
+          <h1 style={{fontFamily:"'DM Serif Display',Georgia,serif",
+            fontSize:"clamp(1.75rem,4.5vw,2.5rem)",
+            color:T.tx,fontWeight:700,margin:"0 0 8px",letterSpacing:"-0.025em",lineHeight:1.15}}>
+            {greeting},&nbsp;<span style={{color:T.ac}}>{firstName}!</span>
+          </h1>
+          {chips.length>0
+            ?<div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:4}}>
+              {chips.map((c,i)=>(
+                <span key={i} style={{display:"inline-flex",alignItems:"center",gap:4,
+                  padding:"3px 10px",borderRadius:20,
+                  background:`${c.col}15`,border:`1px solid ${c.col}30`,
+                  fontFamily:"'DM Sans',sans-serif",fontSize:"0.78rem",color:c.col,fontWeight:500}}>
+                  {c.icon} {c.label}
+                </span>
+              ))}
+            </div>
+            :<p style={{fontFamily:"'DM Sans',sans-serif",fontSize:"0.9rem",color:T.t2,margin:0,lineHeight:1.5}}>
+              Clear schedule — great day to focus! ✨
+            </p>}
+        </div>
+        {/* Customize button */}
+        <button onClick={()=>{setEditMode(p=>!p);setShowPicker(false);}}
+          style={{padding:"9px 18px",borderRadius:10,
+            border:`1px solid ${editMode?T.ac:T.bd}`,
+            background:editMode?`${T.ac}18`:"transparent",
+            color:editMode?T.ac:T.t2,cursor:"pointer",
+            fontFamily:"'DM Sans',sans-serif",fontSize:"0.83rem",
+            display:"flex",alignItems:"center",gap:7,flexShrink:0,
+            fontWeight:editMode?600:400,transition:"all 0.18s"}}>
+          <span>{editMode?"✓":"✏"}</span>
+          {editMode?"Done":"Customize"}
+        </button>
+      </div>
+    </div>
+
+    {/* ─── Widget Grid ─── */}
+    <div style={{padding:"20px 20px 48px",maxWidth:980,margin:"0 auto"}}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:14,alignItems:"start"}}>
+        {dashLayout.map(w=>(
+          <div key={w.id} style={{gridColumn:w.width==="full"?"1 / -1":"auto"}}>
+            <WCard w={w}>{renderWidget(w)}</WCard>
+          </div>
+        ))}
+      </div>
+
+      {/* Add widget button (edit mode only) */}
+      {editMode&&<div style={{marginTop:18,display:"flex",justifyContent:"center"}}>
+        <button onClick={()=>setShowPicker(true)}
+          style={{display:"flex",alignItems:"center",gap:8,padding:"12px 28px",
+            borderRadius:12,border:`2px dashed ${T.ac}55`,background:`${T.ac}08`,
+            color:T.ac,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",
+            fontSize:"0.88rem",fontWeight:600,transition:"all 0.15s"}}>
+          <span style={{fontSize:"1.1rem",lineHeight:1}}>+</span> Add Widget
+        </button>
+      </div>}
+    </div>
+
+    {/* Widget picker */}
+    {showPicker&&<DashboardWidgetPicker T={T} MO={MO} onClose={()=>setShowPicker(false)} onAdd={addWidget}/>}
+
+    {/* Widget editor */}
+    {editWidget&&<DashboardWidgetEditor T={T} MO={MO} widget={editWidget}
+      onClose={()=>setEditWidget(null)}
+      onSave={cfg=>{updateWidgetConfig(editWidget.id,cfg);setEditWidget(null);}}/>}
   </div>;
 }
 
