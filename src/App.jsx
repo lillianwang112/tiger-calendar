@@ -1049,13 +1049,14 @@ function App(){
           <button onClick={()=>setViewOpen(p=>!p)} style={{display:"flex",alignItems:"center",gap:5,padding:"3px 10px",
             background:T.b3,border:`1px solid ${T.bd}`,borderRadius:6,cursor:"pointer",
             fontFamily:MO,fontSize:"0.55rem",letterSpacing:"0.07em",textTransform:"uppercase",color:T.tx,whiteSpace:"nowrap"}}>
-            {view==="semester"?"Semester":view==="tasks-dashboard"?"Tasks":view==="notes-dashboard"?"Notes":view==="focus-dashboard"?"Focus":view}
+            {view==="semester"?"Semester":view==="tasks-dashboard"?"Tasks":view==="notes-dashboard"?"Notes":view==="focus-dashboard"?"Focus":view==="home"?"Dashboard":view}
             <span style={{fontSize:"0.45rem",color:T.t3,marginLeft:2}}>{viewOpen?"▲":"▼"}</span>
           </button>
           {viewOpen&&<>
             <div onClick={()=>setViewOpen(false)} style={{position:"fixed",inset:0,zIndex:499}}/>
             <div style={{position:"absolute",top:"100%",right:0,marginTop:4,background:T.mb,border:`1px solid ${T.bd}`,
-              borderRadius:8,boxShadow:"0 8px 24px rgba(0,0,0,0.18)",zIndex:500,minWidth:140}}>
+              borderRadius:8,boxShadow:"0 8px 24px rgba(0,0,0,0.18)",zIndex:500,minWidth:150,
+              maxHeight:"calc(100vh - 80px)",overflowY:"auto"}}>
               {[["day","Day","D"],["week","Week","W"],["month","Month","M"],["year","Year","Y"],["schedule","Schedule","S"],["semester","Semester",""],["tasks-dashboard","Tasks",""],["notes-dashboard","Notes",""],["focus-dashboard","Focus",""],["home","Dashboard",""]].map(([k,label,shortcut])=>
                 <div key={k} onClick={()=>{if(k!=="tasks-dashboard"&&k!=="notes-dashboard"&&k!=="focus-dashboard"&&k!=="home")lastCalViewRef.current=k;setView(k);setViewOpen(false);}}
                   style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"7px 12px",cursor:"pointer",
