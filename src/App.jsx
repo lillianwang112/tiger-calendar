@@ -672,9 +672,10 @@ function App(){
   const viewBtnRef=useRef(null);
   const[viewDropPos,setViewDropPos]=useState({top:0,right:0});
   const skipFontSizeReadRef=useRef(false);
-  // True once cloudSyncReady fires — gates DASH_SK writes so applyCloud-triggered
-  // state changes don't stamp DASH_SK before the user has actually edited anything.
-  const dashInitializedRef=useRef(false);
+  // Tracks the previous dashboard references so we can skip the initial mount write.
+  // This prevents default-layout boot writes while still allowing immediate local saves
+  // for real user edits, even before Firestore finishes initial sync.
+  const prevDashRef=useRef(null);
   const[mcM,setMcM]=useState(()=>new Date());
   const[sbO,setSbO]=useState(()=>window.innerWidth>=768);
   const swipeRef=useRef(null);
@@ -789,18 +790,20 @@ function App(){
     if(user)upload(data);
   },[persistableEvents,tasks,courses,cats,sem,theme,showHolidays,settings,exams,assignments,officeHours,quickNotes,journalEntries,sleepSettings,sleepDayData,dashPriorities,dashLayout,user,cloudSyncReady]);
 
-  // Mark initialized once cloud sync is ready (applyCloud has already applied its changes).
-  // After this point, any dashLayout/dashPriorities change is a real user edit.
-  useEffect(()=>{if(cloudSyncReady)dashInitializedRef.current=true;},[cloudSyncReady]);
-
-  // Save to DASH_SK + Firestore only after initialization so we never stamp DASH_SK
-  // with DEFAULT_DASH_LAYOUT or applyCloud-restored data (which would then block Firestore
-  // from loading the user's real layout on a fresh device).
+  // Save dashboard edits to dedicated localStorage immediately so a fast reload
+  // right after pressing "Done" does not lose changes. Cloud upload still waits
+  // for cloudSyncReady to avoid clobbering remote state during initial bootstrap.
   useEffect(()=>{
-    if(!dashInitializedRef.current)return;
+    const prev=prevDashRef.current;
+    if(!prev){
+      prevDashRef.current={layout:dashLayout,priorities:dashPriorities};
+      return;
+    }
+    if(prev.layout===dashLayout&&prev.priorities===dashPriorities)return;
+    prevDashRef.current={layout:dashLayout,priorities:dashPriorities};
     svDash(dashLayout,dashPriorities,Date.now());
-    uploadDash(dashLayout,dashPriorities);
-  },[dashLayout,dashPriorities]);
+    if(cloudSyncReady)uploadDash(dashLayout,dashPriorities);
+  },[dashLayout,dashPriorities,cloudSyncReady,uploadDash]);
 
 
 
