@@ -1,4 +1,4 @@
-const CACHE_NAME = 'tigercal-v4';
+const CACHE_NAME = 'tigercal-v5';
 const STATIC_ASSETS = [
   '/manifest.json',
   '/icons/icon-96x96.png',
@@ -18,19 +18,26 @@ self.addEventListener('install', e => {
 });
 
 self.addEventListener('activate', e => {
-  e.waitUntil(caches.keys().then(keys => Promise.all(
-    keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k))
-  )));
+  e.waitUntil(
+    caches.keys().then(keys => Promise.all(
+      keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k))
+    )).then(() => {
+      // Tell all clients to reload so they get the latest version immediately
+      return self.clients.matchAll({type:'window'}).then(clients => {
+        clients.forEach(client => client.postMessage({type:'SW_UPDATED'}));
+      });
+    })
+  );
   self.clients.claim();
 });
 
 self.addEventListener('fetch', e => {
-  // Network-first for HTML navigation
+  // Network-first for HTML navigation — always serve fresh HTML
   if (e.request.mode === 'navigate') {
     e.respondWith(fetch(e.request).catch(() => caches.match('/index.html')));
     return;
   }
-  // Cache-first with network fallback and dynamic caching for all other requests
+  // Cache-first with network fallback for other assets
   e.respondWith(
     caches.match(e.request).then(cached => {
       if (cached) return cached;

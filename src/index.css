@@ -84,3 +84,15 @@
   .rte-wrap [data-placeholder]:empty:before{content:attr(data-placeholder);color:#999;pointer-events:none;font-style:italic}
   .rte-wrap:focus-within [data-placeholder]:empty:before{color:#bbb}
   .rte-tb::-webkit-scrollbar{display:none}
+  /* Custom always-visible scrollbar for the editor page area (works on iPad/mobile) */
+  .rte-scroll{scrollbar-width:thin;scrollbar-color:#b8b0cc transparent}
+  .rte-scroll::-webkit-scrollbar{width:8px;height:8px}
+  .rte-scroll::-webkit-scrollbar-track{background:rgba(0,0,0,0.06);border-radius:4px;margin:4px 0}
+  .rte-scroll::-webkit-scrollbar-thumb{background:#b8b0cc;border-radius:4px;border:2px solid transparent;background-clip:padding-box;min-height:40px}
+  .rte-scroll::-webkit-scrollbar-thumb:hover{background:#9b90bf;border:2px solid transparent;background-clip:padding-box}
+  .rte-scroll::-webkit-scrollbar-corner{background:transparent}
+  /* Force scrollbar visibility on touch devices */
+  @media (pointer: coarse){
+    .rte-scroll::-webkit-scrollbar{width:6px}
+    .rte-scroll::-webkit-scrollbar-thumb{background:#a09ac0;border:none}
+  }
