@@ -19,12 +19,16 @@ self.addEventListener('install', e => {
 
 self.addEventListener('activate', e => {
   e.waitUntil(
-    caches.keys().then(keys => Promise.all(
-      keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k))
-    )).then(() => {
-      // Tell all clients to reload so they get the latest version immediately
-      return self.clients.matchAll({type:'window'}).then(clients => {
-        clients.forEach(client => client.postMessage({type:'SW_UPDATED'}));
+    caches.keys().then(keys => {
+      const old = keys.filter(k => k !== CACHE_NAME);
+      const wasUpdate = old.length > 0;
+      return Promise.all(old.map(k => caches.delete(k))).then(() => {
+        // Only reload clients when replacing an existing version, not on first install
+        if (wasUpdate) {
+          return self.clients.matchAll({type:'window'}).then(clients => {
+            clients.forEach(client => client.postMessage({type:'SW_UPDATED'}));
+          });
+        }
       });
     })
   );
