@@ -648,6 +648,7 @@ function App(){
   const[viewOpen,setViewOpen]=useState(false);
   const viewBtnRef=useRef(null);
   const[viewDropPos,setViewDropPos]=useState({top:0,right:0});
+  const skipFontSizeReadRef=useRef(false);
   const[mcM,setMcM]=useState(()=>new Date());
   const[sbO,setSbO]=useState(()=>window.innerWidth>=768);
   const swipeRef=useRef(null);
@@ -3152,7 +3153,7 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
         if(nd&&editorRef.current?.contains(nd)){
           const cs=window.getComputedStyle(nd);
           const px=parseFloat(cs.fontSize);
-          if(!isNaN(px))setSelFontSize(String(Math.round(px)));
+          if(!isNaN(px)&&!skipFontSizeReadRef.current)setSelFontSize(String(Math.round(px)));
           const ff=cs.fontFamily||"";
           const fm=FONTS.find(([n,v])=>v.split(',').some(part=>{
             const token=part.replace(/'/g,'').trim().toLowerCase();
@@ -3194,24 +3195,45 @@ function RichTextEditor({initialValue,onChange,T,MO,placeholder,minHeight}){
 
   const applyFontSize=(px)=>{
     restoreRange();
+    // Mark all existing font/span elements so we can distinguish newly created ones
+    const MARK='data-rte-fs-prev';
+    if(editorRef.current){
+      editorRef.current.querySelectorAll('font[size],span[style]').forEach(el=>el.setAttribute(MARK,'1'));
+    }
     try{document.execCommand('styleWithCSS',false,false);}catch(e){}
     document.execCommand('fontSize',false,'7');
     try{document.execCommand('styleWithCSS',false,true);}catch(e){}
     if(editorRef.current){
+      // Case A: styleWithCSS was off → <font size="7"> created
       editorRef.current.querySelectorAll('font[size="7"]').forEach(font=>{
         const span=document.createElement('span');
         span.style.fontSize=px+'px';
         span.innerHTML=font.innerHTML;
         font.parentNode.replaceChild(span,font);
-        // Clear font-size from ancestor inline elements so they don't override the new size
         let anc=span.parentNode;
         while(anc&&anc!==editorRef.current){
           if(anc.nodeType===1&&anc.style&&anc.style.fontSize)anc.style.fontSize='';
           anc=anc.parentNode;
         }
       });
+      // Case B: styleWithCSS stayed on → new <span style="font-size:..."> created (no MARK)
+      editorRef.current.querySelectorAll('span[style]').forEach(s=>{
+        if(!s.getAttribute(MARK)&&s.style.fontSize){
+          s.style.fontSize=px+'px';
+          let anc=s.parentNode;
+          while(anc&&anc!==editorRef.current){
+            if(anc.nodeType===1&&anc.style&&anc.style.fontSize)anc.style.fontSize='';
+            anc=anc.parentNode;
+          }
+        }
+      });
+      // Remove markers
+      editorRef.current.querySelectorAll(`[${MARK}]`).forEach(el=>el.removeAttribute(MARK));
     }
-    emit();setSelFontSize(String(px));
+    emit();
+    skipFontSizeReadRef.current=true;
+    setSelFontSize(String(px));
+    setTimeout(()=>{skipFontSizeReadRef.current=false;},200);
   };
   const applyFontFamily=(ff)=>{
     restoreRange();sty();
