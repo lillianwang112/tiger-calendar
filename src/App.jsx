@@ -447,13 +447,24 @@ function useFirestoreSync(user,_localData,setters){
     debounceRef.current=setTimeout(()=>{uploadToFirestore(user.uid,data);pendingDataRef.current=null;},1500);
   },[user]);
 
+  // Immediate merge-write for dashboard state so reloads within the 1500ms debounce
+  // window don't lose widget edits. Updates lastUploadTs to suppress the echo snapshot.
+  const uploadDash=useCallback((layout,priorities)=>{
+    if(!FB_DB||!user||syncRef.current||!cloudReadyRef.current)return;
+    const ts=Date.now();
+    lastUploadTs.current=ts;
+    try{FB_DB.collection("calendars").doc(user.uid)
+      .set({dashLayout:layout,dashPriorities:priorities,_ts:ts},{merge:true})
+      .catch(()=>{});}catch(e){}
+  },[user]);
+
   const restoreFromBackup=useCallback((backup)=>{
     // Apply the snapshot to all state and immediately write it to Firestore.
     applyCloud(backup,false);
     uploadToFirestore(user.uid,backup);
   },[user]);
 
-  return{upload,restoreFromBackup,cloudSyncReady};
+  return{upload,uploadDash,restoreFromBackup,cloudSyncReady};
 }
 
 function uploadToFirestore(uid,data){
@@ -747,7 +758,7 @@ function App(){
     return res;
   },[sleepSettings,sleepDayData]);
   const allEvents=[...events.filter(e=>!e._taskDueId),..._taskDueEvs,..._sleepEvs];
-  const{upload,restoreFromBackup,cloudSyncReady}=useFirestoreSync(user,{events:persistableEvents,tasks,courses,cats,sem,theme,showHolidays,settings,exams,assignments,officeHours,quickNotes,journalEntries,sleepSettings,sleepDayData,dashPriorities,dashLayout},syncSetters);
+  const{upload,uploadDash,restoreFromBackup,cloudSyncReady}=useFirestoreSync(user,{events:persistableEvents,tasks,courses,cats,sem,theme,showHolidays,settings,exams,assignments,officeHours,quickNotes,journalEntries,sleepSettings,sleepDayData,dashPriorities,dashLayout},syncSetters);
 
   useEffect(()=>{setAc(p=>{const n=new Set(p);Object.keys(cats).forEach(k=>n.add(k));n.add("_holidays");n.add("_officehours");return n;});},[cats]);
   useEffect(()=>{
@@ -761,13 +772,12 @@ function App(){
     if(user)upload(data);
   },[persistableEvents,tasks,courses,cats,sem,theme,showHolidays,settings,exams,assignments,officeHours,quickNotes,journalEntries,sleepSettings,sleepDayData,dashPriorities,dashLayout,user,cloudSyncReady]);
 
-  // Dashboard state: write immediately to Firestore (no debounce) using merge so
-  // a reload within the 1500ms debounce window never loses widget edits.
+  // Dashboard state: write immediately (no debounce) so reloads within 1500ms never lose edits.
+  // uploadDash also updates lastUploadTs to suppress the resulting onSnapshot echo.
   useEffect(()=>{
-    if(!cloudSyncReady||!user||!FB_DB)return;
-    const ts=Date.now();
-    try{FB_DB.collection("calendars").doc(user.uid).set({dashLayout,dashPriorities,_ts:ts},{merge:true}).catch(()=>{});}catch(e){}
-  },[dashLayout,dashPriorities,cloudSyncReady,user]);
+    if(!cloudSyncReady)return;
+    uploadDash(dashLayout,dashPriorities);
+  },[dashLayout,dashPriorities,cloudSyncReady]);
 
 
 
