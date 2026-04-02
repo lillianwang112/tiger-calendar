@@ -294,6 +294,7 @@ function useFirestoreSync(user,_localData,setters){
   const debounceRef=useRef(null);
   const lastUploadTs=useRef(0); // track the _ts of the last upload we sent
   const pendingDataRef=useRef(null); // latest unsaved data, flushed on visibility hide
+  const pendingDashRef=useRef(null); // local dashboard edits that should be pushed after bootstrap
   // cloudSyncReady: React state version of cloudReadyRef, exposed to App so
   // svForUser is only called AFTER the initial cloud snapshot is applied.
   // This prevents the empty-initial-state write from poisoning localStorage.
@@ -328,14 +329,22 @@ function useFirestoreSync(user,_localData,setters){
     if(cloud.journalEntries&&setters.setJournalEntries)setters.setJournalEntries(cloud.journalEntries);
     if(cloud.sleepSettings&&setters.setSleepSettings)setters.setSleepSettings(cloud.sleepSettings);
     if(cloud.sleepDayData&&setters.setSleepDayData)setters.setSleepDayData(cloud.sleepDayData);
-    // For initial load: only override dashboard if the user has NO local edits (DASH_SK absent).
-    // DASH_SK is only written after the app is fully initialized and the user actually edits,
-    // so its presence reliably means "this device has uncommitted local changes".
-    // For live onSnapshot updates (isInitial=false): always apply for cross-device sync.
+    // Dashboard conflict resolution (local vs cloud):
+    // Prefer whichever snapshot is newer by _ts so stale cloud snapshots don't wipe
+    // local edits on reload. If local wins during bootstrap, queue a merge-write so
+    // Firestore catches up once the initial sync lock is released.
     const localDash=ldDash();
-    if(!isInitial||!localDash){
+    const localDashTs=Number(localDash?._ts||0);
+    const cloudDashTs=Number(cloud?._ts||0);
+    const useLocalDash=!!(localDash&&localDashTs>cloudDashTs);
+    if(useLocalDash){
+      if(localDash.dashPriorities!==undefined&&setters.setDashPriorities)setters.setDashPriorities(localDash.dashPriorities);
+      if(localDash.dashLayout&&setters.setDashLayout)setters.setDashLayout(localDash.dashLayout);
+      pendingDashRef.current=localDash;
+    }else{
       if(cloud.dashPriorities!==undefined&&setters.setDashPriorities)setters.setDashPriorities(cloud.dashPriorities);
       if(cloud.dashLayout&&setters.setDashLayout)setters.setDashLayout(cloud.dashLayout);
+      pendingDashRef.current=null;
     }
 
     // Directly regenerate ALL derived events rather than relying on useEffects.
@@ -400,7 +409,20 @@ function useFirestoreSync(user,_localData,setters){
     sv(cloud);
     // Wait for React to flush all state updates before re-enabling uploads.
     // The 800ms delay covers React batching + any residual useEffect cycles.
-    setTimeout(()=>{syncRef.current=false;if(isInitial){cloudReadyRef.current=true;setCloudSyncReady(true);}},800);
+    setTimeout(()=>{
+      syncRef.current=false;
+      if(isInitial){cloudReadyRef.current=true;setCloudSyncReady(true);}
+      // If local dashboard state beat cloud during conflict resolution, push it now.
+      if(user&&pendingDashRef.current){
+        const d=pendingDashRef.current;
+        const ts=Number(d._ts)||Date.now();
+        lastUploadTs.current=Math.max(lastUploadTs.current,ts);
+        try{FB_DB.collection("calendars").doc(user.uid)
+          .set({dashLayout:d.dashLayout||[],dashPriorities:d.dashPriorities||[],_ts:ts},{merge:true})
+          .catch(()=>{});}catch(e){}
+        pendingDashRef.current=null;
+      }
+    },800);
   }
 
   useEffect(()=>{
