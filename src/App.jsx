@@ -328,13 +328,12 @@ function useFirestoreSync(user,_localData,setters){
     if(cloud.journalEntries&&setters.setJournalEntries)setters.setJournalEntries(cloud.journalEntries);
     if(cloud.sleepSettings&&setters.setSleepSettings)setters.setSleepSettings(cloud.sleepSettings);
     if(cloud.sleepDayData&&setters.setSleepDayData)setters.setSleepDayData(cloud.sleepDayData);
-    // Only override local dashboard state if the cloud version is newer.
-    // If the user edited widgets and reloaded before Firestore confirmed the write,
-    // the local DASH_SK cache has a higher _ts and wins.
+    // For initial load: only override dashboard if the user has NO local edits (DASH_SK absent).
+    // DASH_SK is only written after the app is fully initialized and the user actually edits,
+    // so its presence reliably means "this device has uncommitted local changes".
+    // For live onSnapshot updates (isInitial=false): always apply for cross-device sync.
     const localDash=ldDash();
-    const localDashTs=localDash?._ts||0;
-    const cloudDashTs=cloud._ts||0;
-    if(cloudDashTs>=localDashTs){
+    if(!isInitial||!localDash){
       if(cloud.dashPriorities!==undefined&&setters.setDashPriorities)setters.setDashPriorities(cloud.dashPriorities);
       if(cloud.dashLayout&&setters.setDashLayout)setters.setDashLayout(cloud.dashLayout);
     }
@@ -673,6 +672,9 @@ function App(){
   const viewBtnRef=useRef(null);
   const[viewDropPos,setViewDropPos]=useState({top:0,right:0});
   const skipFontSizeReadRef=useRef(false);
+  // True once cloudSyncReady fires — gates DASH_SK writes so applyCloud-triggered
+  // state changes don't stamp DASH_SK before the user has actually edited anything.
+  const dashInitializedRef=useRef(false);
   const[mcM,setMcM]=useState(()=>new Date());
   const[sbO,setSbO]=useState(()=>window.innerWidth>=768);
   const swipeRef=useRef(null);
@@ -787,13 +789,18 @@ function App(){
     if(user)upload(data);
   },[persistableEvents,tasks,courses,cats,sem,theme,showHolidays,settings,exams,assignments,officeHours,quickNotes,journalEntries,sleepSettings,sleepDayData,dashPriorities,dashLayout,user,cloudSyncReady]);
 
-  // Dashboard state: persist to localStorage immediately (no gate, no debounce) and
-  // write to Firestore (via uploadDash) once cloud sync is ready.
+  // Mark initialized once cloud sync is ready (applyCloud has already applied its changes).
+  // After this point, any dashLayout/dashPriorities change is a real user edit.
+  useEffect(()=>{if(cloudSyncReady)dashInitializedRef.current=true;},[cloudSyncReady]);
+
+  // Save to DASH_SK + Firestore only after initialization so we never stamp DASH_SK
+  // with DEFAULT_DASH_LAYOUT or applyCloud-restored data (which would then block Firestore
+  // from loading the user's real layout on a fresh device).
   useEffect(()=>{
-    const ts=Date.now();
-    svDash(dashLayout,dashPriorities,ts);
-    if(cloudSyncReady)uploadDash(dashLayout,dashPriorities);
-  },[dashLayout,dashPriorities,cloudSyncReady]);
+    if(!dashInitializedRef.current)return;
+    svDash(dashLayout,dashPriorities,Date.now());
+    uploadDash(dashLayout,dashPriorities);
+  },[dashLayout,dashPriorities]);
 
 
 
