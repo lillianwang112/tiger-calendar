@@ -29,6 +29,9 @@ const MN2=["January","February","March","April","May","June","July","August","Se
 const DN=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
 const DNF=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
 const SK="tiger_calendar_v3";
+const DASH_SK="tiger_calendar_v3:dash"; // dedicated key for immediate dashboard saves
+function ldDash(){try{const r=localStorage.getItem(DASH_SK);return r?JSON.parse(r):null;}catch(e){return null;}}
+function svDash(layout,priorities,ts){try{localStorage.setItem(DASH_SK,JSON.stringify({dashLayout:layout,dashPriorities:priorities,_ts:ts}));}catch(e){}}
 const gi=()=>"id_"+Math.random().toString(36).slice(2,10)+Date.now().toString(36);
 // Global flag: true while a horizontal swipe navigation is in progress.
 // Pinch-to-zoom checks this and ignores two-finger gestures during swipe.
@@ -325,8 +328,16 @@ function useFirestoreSync(user,_localData,setters){
     if(cloud.journalEntries&&setters.setJournalEntries)setters.setJournalEntries(cloud.journalEntries);
     if(cloud.sleepSettings&&setters.setSleepSettings)setters.setSleepSettings(cloud.sleepSettings);
     if(cloud.sleepDayData&&setters.setSleepDayData)setters.setSleepDayData(cloud.sleepDayData);
-    if(cloud.dashPriorities!==undefined&&setters.setDashPriorities)setters.setDashPriorities(cloud.dashPriorities);
-    if(cloud.dashLayout&&setters.setDashLayout)setters.setDashLayout(cloud.dashLayout);
+    // Only override local dashboard state if the cloud version is newer.
+    // If the user edited widgets and reloaded before Firestore confirmed the write,
+    // the local DASH_SK cache has a higher _ts and wins.
+    const localDash=ldDash();
+    const localDashTs=localDash?._ts||0;
+    const cloudDashTs=cloud._ts||0;
+    if(cloudDashTs>=localDashTs){
+      if(cloud.dashPriorities!==undefined&&setters.setDashPriorities)setters.setDashPriorities(cloud.dashPriorities);
+      if(cloud.dashLayout&&setters.setDashLayout)setters.setDashLayout(cloud.dashLayout);
+    }
 
     // Directly regenerate ALL derived events rather than relying on useEffects.
     // This avoids race conditions where sem/showHolidays don't "change" (same value
@@ -671,14 +682,18 @@ function App(){
   const[journalEntries,setJournalEntries]=useState(saved?.journalEntries||[]);
   const[sleepSettings,setSleepSettings]=useState(saved?.sleepSettings||{enabled:false,bedtime:"22:00",wakeTime:"07:00"});
   const[sleepDayData,setSleepDayData]=useState(saved?.sleepDayData||{});
-  const[dashPriorities,setDashPriorities]=useState(saved?.dashPriorities||[]);
   const DEFAULT_DASH_LAYOUT=[
     {id:"dw_welcome",type:"welcome"},
     {id:"dw_schedule",type:"schedule"},
     {id:"dw_tasks",type:"tasks"},
     {id:"dw_priorities",type:"priorities"},
   ];
-  const[dashLayout,setDashLayout]=useState(saved?.dashLayout||DEFAULT_DASH_LAYOUT);
+  // Always seed from the dedicated dash localStorage key so edits survive reload
+  // even for Firebase users (where `saved` is null until Firestore loads).
+  // applyCloud will override with Firestore data if it arrives and is newer.
+  const _dashInit=useMemo(()=>ldDash(),[]);
+  const[dashPriorities,setDashPriorities]=useState(saved?.dashPriorities??_dashInit?.dashPriorities??[]);
+  const[dashLayout,setDashLayout]=useState(saved?.dashLayout??_dashInit?.dashLayout??DEFAULT_DASH_LAYOUT);
   // remember last calendar view so the calendar icon button returns to it
   const lastCalViewRef=useRef(view==="tasks-dashboard"||view==="notes-dashboard"||view==="focus-dashboard"?"week":view);
 
@@ -772,11 +787,12 @@ function App(){
     if(user)upload(data);
   },[persistableEvents,tasks,courses,cats,sem,theme,showHolidays,settings,exams,assignments,officeHours,quickNotes,journalEntries,sleepSettings,sleepDayData,dashPriorities,dashLayout,user,cloudSyncReady]);
 
-  // Dashboard state: write immediately (no debounce) so reloads within 1500ms never lose edits.
-  // uploadDash also updates lastUploadTs to suppress the resulting onSnapshot echo.
+  // Dashboard state: persist to localStorage immediately (no gate, no debounce) and
+  // write to Firestore (via uploadDash) once cloud sync is ready.
   useEffect(()=>{
-    if(!cloudSyncReady)return;
-    uploadDash(dashLayout,dashPriorities);
+    const ts=Date.now();
+    svDash(dashLayout,dashPriorities,ts);
+    if(cloudSyncReady)uploadDash(dashLayout,dashPriorities);
   },[dashLayout,dashPriorities,cloudSyncReady]);
 
 
