@@ -761,6 +761,14 @@ function App(){
     if(user)upload(data);
   },[persistableEvents,tasks,courses,cats,sem,theme,showHolidays,settings,exams,assignments,officeHours,quickNotes,journalEntries,sleepSettings,sleepDayData,dashPriorities,dashLayout,user,cloudSyncReady]);
 
+  // Dashboard state: write immediately to Firestore (no debounce) using merge so
+  // a reload within the 1500ms debounce window never loses widget edits.
+  useEffect(()=>{
+    if(!cloudSyncReady||!user||!FB_DB)return;
+    const ts=Date.now();
+    try{FB_DB.collection("calendars").doc(user.uid).set({dashLayout,dashPriorities,_ts:ts},{merge:true}).catch(()=>{});}catch(e){}
+  },[dashLayout,dashPriorities,cloudSyncReady,user]);
+
 
 
   const ACCENTS={
