@@ -412,7 +412,16 @@ function useFirestoreSync(user,_localData,setters){
       }
     }).catch(e=>{
       console.warn("Firestore read error:",e);
-      cloudReadyRef.current=true;setCloudSyncReady(true); // unblock on error so app remains usable
+      // On error (e.g. permission-denied, offline), fall back to any locally-cached
+      // data for this user rather than unblocking with an empty state — that would
+      // cause the save useEffect to immediately overwrite good localStorage data with
+      // an empty snapshot.
+      const local=ldForUser(user.uid);
+      if(local&&(local.events?.length||local.tasks?.length||local.courses?.length)){
+        applyCloud(local,true);
+      } else {
+        cloudReadyRef.current=true;setCloudSyncReady(true);
+      }
     });
 
     const unsub=docRef.onSnapshot(snap=>{
@@ -422,7 +431,7 @@ function useFirestoreSync(user,_localData,setters){
       const localTs=lastUploadTs.current||0;
       // Only apply if cloud is meaningfully newer (500ms buffer avoids echo)
       if(cloud._ts>localTs+500){saveBackup(user.uid,cloud);applyCloud(cloud,false);}
-    });
+    },err=>{console.warn("Firestore snapshot error:",err);});
     // Flush any pending debounced upload when the tab goes hidden (user switches
     // tabs, minimizes, or closes the window). This fires reliably before the
     // page is discarded, giving Firestore enough time to queue the write.
