@@ -206,6 +206,19 @@ function ldForUser(uid){
 function svForUser(uid,d){
   const key=uid?`${SK}:uid_${uid}`:`${SK}:guest`;
   try{localStorage.setItem(key,JSON.stringify({...d,_uid:uid}));}catch(e){}}
+function ldDashForUser(uid){
+  const key=uid?`${SK_DASH}:uid_${uid}`:`${SK_DASH}:guest`;
+  try{const r=localStorage.getItem(key);if(r)return JSON.parse(r);}catch(e){}
+  // fallback for legacy global key
+  try{const r=localStorage.getItem(SK_DASH);if(r)return JSON.parse(r);}catch(e){}
+  return null;
+}
+function svDashForUser(uid,d){
+  const key=uid?`${SK_DASH}:uid_${uid}`:`${SK_DASH}:guest`;
+  try{localStorage.setItem(key,JSON.stringify(d));}catch(e){}
+  // keep global key updated for backward compatibility
+  try{localStorage.setItem(SK_DASH,JSON.stringify(d));}catch(e){}
+}
 function clearUserStorage(uid){
   if(!uid)return;
   try{localStorage.removeItem(`${SK}:uid_${uid}`);}catch(e){}}
@@ -332,7 +345,7 @@ function useFirestoreSync(user,_localData,setters){
     // server-confirmed data, and dashLayout may never reach the server.
     // SK_DASH is written to localStorage (reliable, no network) after cloudSyncReady.
     // Fall back to cloud if SK_DASH is absent or was written by old ungated code.
-    {const _skd=(()=>{try{const r=localStorage.getItem(SK_DASH);return r?JSON.parse(r):null;}catch(e){return null;}})();
+    {const _skd=ldDashForUser(user?.uid);
     // Dashboard customization is device-personal and should be resilient to
     // stale/failed cloud writes. If we have a post-migration local snapshot,
     // prefer it on initial hydration instead of comparing timestamps with the
@@ -704,7 +717,7 @@ function App(){
   const[sleepDayData,setSleepDayData]=useState(saved?.sleepDayData||{});
   // Load dashboard state from SK_DASH (always-on key, no auth gating) so
   // authenticated users don't fall back to DEFAULT_DASH_LAYOUT on every reload.
-  const _savedDash=(()=>{try{const r=localStorage.getItem(SK_DASH);return r?JSON.parse(r):null;}catch(e){return null;}})();
+  const _savedDash=ldDashForUser(isGuest?"guest":null);
   const[dashPriorities,setDashPriorities]=useState(_savedDash?.priorities||saved?.dashPriorities||[]);
   const DEFAULT_DASH_LAYOUT=[
     {id:"dw_welcome",type:"welcome"},
@@ -815,8 +828,11 @@ function App(){
     if(!uid||dashUidHydratedRef.current===uid)return;
     dashUidHydratedRef.current=uid;
     const cached=ldForUser(uid);
+    const cachedDash=ldDashForUser(uid);
     if(cached?.dashLayout&&Array.isArray(cached.dashLayout))setDashLayout(cached.dashLayout);
     if(cached?.dashPriorities&&Array.isArray(cached.dashPriorities))setDashPriorities(cached.dashPriorities);
+    if(cachedDash?.layout&&Array.isArray(cachedDash.layout))setDashLayout(cachedDash.layout);
+    if(cachedDash?.priorities&&Array.isArray(cachedDash.priorities))setDashPriorities(cachedDash.priorities);
   },[user?.uid,isGuest]);
   // Persist dashboard layout to SK_DASH for all post-mount changes.
   // Skip the very first render so the initial default state never stamps a
@@ -827,7 +843,7 @@ function App(){
     if(!dashLocalWriteReadyRef.current){dashLocalWriteReadyRef.current=true;return;}
     const _skd={layout:dashLayout,priorities:dashPriorities,_ts:Date.now(),_v:2};
     console.log("[DASH SK_DASH write]",{widgetCount:dashLayout.length,_ts:_skd._ts});
-    try{localStorage.setItem(SK_DASH,JSON.stringify(_skd));}catch(e){}
+    svDashForUser(user?.uid||(isGuest?"guest":null),_skd);
   },[dashLayout,dashPriorities]);
   // Mirror dashboard state into the per-user storage slot on each edit so
   // reloads can recover even if global SK_DASH is unavailable in the runtime.
@@ -845,7 +861,7 @@ function App(){
     const ts=Date.now();
     const nextLayout=layoutOverride??dashLayout;
     const nextPriorities=prioritiesOverride??dashPriorities;
-    try{localStorage.setItem(SK_DASH,JSON.stringify({layout:nextLayout,priorities:nextPriorities,_ts:ts,_v:2}));}catch(e){}
+    svDashForUser(user?.uid||(isGuest?"guest":null),{layout:nextLayout,priorities:nextPriorities,_ts:ts,_v:2});
     const uid=user?.uid||(isGuest?"guest":null);
     if(layoutOverride!==undefined||prioritiesOverride!==undefined){
       const prev=ldForUser(uid)||{};
