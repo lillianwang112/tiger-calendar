@@ -325,8 +325,14 @@ function useFirestoreSync(user,_localData,setters){
     if(cloud.journalEntries&&setters.setJournalEntries)setters.setJournalEntries(cloud.journalEntries);
     if(cloud.sleepSettings&&setters.setSleepSettings)setters.setSleepSettings(cloud.sleepSettings);
     if(cloud.sleepDayData&&setters.setSleepDayData)setters.setSleepDayData(cloud.sleepDayData);
-    if(cloud.dashPriorities&&setters.setDashPriorities)setters.setDashPriorities(cloud.dashPriorities);
-    if(cloud.dashLayout&&setters.setDashLayout)setters.setDashLayout(cloud.dashLayout);
+    // For dashLayout/dashPriorities prefer local data when it has a newer _ts.
+    // svForUser writes synchronously so if the user edits widgets and reloads
+    // before the 1500ms debounced Firestore upload completes, the local copy is
+    // more recent and should win over the stale cloud snapshot.
+    const _localSnap=isInitial&&user?ldForUser(user.uid):null;
+    const _preferLocal=!!(_localSnap&&(_localSnap._ts||0)>(cloud._ts||0));
+    if(_preferLocal?_localSnap.dashPriorities!=null:cloud.dashPriorities)setters.setDashPriorities(_preferLocal?_localSnap.dashPriorities:cloud.dashPriorities);
+    if(_preferLocal?_localSnap.dashLayout!=null:cloud.dashLayout)setters.setDashLayout(_preferLocal?_localSnap.dashLayout:cloud.dashLayout);
 
     // Directly regenerate ALL derived events rather than relying on useEffects.
     // This avoids race conditions where sem/showHolidays don't "change" (same value
