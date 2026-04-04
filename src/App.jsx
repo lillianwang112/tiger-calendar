@@ -717,7 +717,7 @@ function App(){
   const[sleepDayData,setSleepDayData]=useState(saved?.sleepDayData||{});
   // Load dashboard state from SK_DASH (always-on key, no auth gating) so
   // authenticated users don't fall back to DEFAULT_DASH_LAYOUT on every reload.
-  const _savedDash=ldDashForUser(isGuest?"guest":null);
+  const _savedDash=isGuest?ldDashForUser("guest"):null;
   const[dashPriorities,setDashPriorities]=useState(_savedDash?.priorities||saved?.dashPriorities||[]);
   const DEFAULT_DASH_LAYOUT=[
     {id:"dw_welcome",type:"welcome"},
