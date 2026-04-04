@@ -7248,12 +7248,12 @@ function DashboardView({T,MO,SE,user,allEvents,tasks,cats,courses,dashPriorities
   const moveWidget=(id,dir)=>setDashLayout(p=>{
     const i=p.findIndex(w=>w.id===id);if(i<0)return p;
     const ni=i+dir;if(ni<0||ni>=p.length)return p;
-    const n=[...p];[n[i],n[ni]]=[n[ni],n[i]];onSave?.(n,dashPriorities);return n;
+    const n=[...p];[n[i],n[ni]]=[n[ni],n[i]];return n;
   });
-  const removeWidget=(id)=>setDashLayout(p=>{const n=p.filter(w=>w.id!==id);onSave?.(n,dashPriorities);return n;});
-  const addWidget=(type)=>setDashLayout(p=>{const n=[...p,{id:gi(),type,config:{},width:"half"}];onSave?.(n,dashPriorities);return n;});
-  const updateWidgetConfig=(id,cfg)=>setDashLayout(p=>{const n=p.map(w=>w.id===id?{...w,config:{...w.config,...cfg}}:w);onSave?.(n,dashPriorities);return n;});
-  const toggleWidth=(id)=>setDashLayout(p=>{const n=p.map(w=>w.id===id?{...w,width:w.width==="full"?"half":"full"}:w);onSave?.(n,dashPriorities);return n;});
+  const removeWidget=(id)=>setDashLayout(p=>p.filter(w=>w.id!==id));
+  const addWidget=(type)=>setDashLayout(p=>[...p,{id:gi(),type,config:{},width:"half"}]);
+  const updateWidgetConfig=(id,cfg)=>setDashLayout(p=>p.map(w=>w.id===id?{...w,config:{...w.config,...cfg}}:w));
+  const toggleWidth=(id)=>setDashLayout(p=>p.map(w=>w.id===id?{...w,width:w.width==="full"?"half":"full"}:w));
 
   // ── Widget content renderers ──
   const WTitle=({icon,label,sub})=>(
