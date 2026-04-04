@@ -821,7 +821,10 @@ function App(){
     const ts=Date.now();
     const data={events:persistableEvents,tasks,courses,cats,sem,theme,showHolidays,settings,exams,assignments,officeHours,quickNotes,journalEntries,sleepSettings,sleepDayData,dashPriorities,dashLayout,_ts:ts};
     svForUser(uid,data);
-    if(user)upload(data);
+    if(user){
+      const{dashPriorities:_dp,dashLayout:_dl,...cloudData}=data;
+      upload(cloudData);
+    }
   },[persistableEvents,tasks,courses,cats,sem,theme,showHolidays,settings,exams,assignments,officeHours,quickNotes,journalEntries,sleepSettings,sleepDayData,dashPriorities,dashLayout,user,cloudSyncReady]);
   // Extra guardrail: hydrate dashboard widgets from per-user local cache as soon
   // as auth resolves. This keeps widgets consistent with the rest of local user
@@ -920,9 +923,19 @@ function App(){
     setEv(prev.events);setTk(prev.tasks);setExams(prev.exams);setAssignments(prev.assignments);if(prev.officeHours)setOfficeHours(prev.officeHours);
   },[]);
 
+  const typingRef=useRef(false);
+  useEffect(()=>{
+    const isInputLike=(el)=>!!el&&(["INPUT","TEXTAREA","SELECT"].includes(el.tagName)||el.isContentEditable);
+    const onIn=(e)=>{if(isInputLike(e.target))typingRef.current=true;};
+    const onOut=()=>{setTimeout(()=>{typingRef.current=isInputLike(document.activeElement);},0);};
+    document.addEventListener("focusin",onIn);
+    document.addEventListener("focusout",onOut);
+    return()=>{document.removeEventListener("focusin",onIn);document.removeEventListener("focusout",onOut);};
+  },[]);
   useEffect(()=>{const h=(e)=>{
     if((e.metaKey||e.ctrlKey)&&e.key==="z"&&!e.shiftKey){if(e.target.isContentEditable)return;e.preventDefault();undo();return;}
     if(modal||csOpen||settingsOpen||eaOpen)return;
+    if(typingRef.current)return;
     const ae=document.activeElement;
     if(ae&&(["INPUT","TEXTAREA","SELECT"].includes(ae.tagName)||ae.isContentEditable))return;
     if(["INPUT","TEXTAREA","SELECT"].includes(e.target.tagName))return;
