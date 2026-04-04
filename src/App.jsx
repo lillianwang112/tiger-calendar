@@ -515,6 +515,11 @@ function uploadToFirestore(uid,data){
   const clean=JSON.parse(JSON.stringify({...data,_ts:data._ts||Date.now()}));
   FB_DB.collection("calendars").doc(uid).set(clean).catch(e=>console.warn("Firestore write error:",e));
 }
+function uploadDashToFirestore(uid,layout,priorities,ts){
+  if(!FB_DB||!uid)return;
+  const clean=JSON.parse(JSON.stringify({dashLayout:layout,dashPriorities:priorities,_ts:ts||Date.now()}));
+  FB_DB.collection("calendars").doc(uid).set(clean,{merge:true}).catch(e=>console.warn("Firestore dash write error:",e));
+}
 
 // ═══ LANDING PAGE ═══
 function LandingPage({signInGoogle,signInEmail,signUpEmail,continueAsGuest,loading}){
@@ -868,7 +873,7 @@ function App(){
     }
     const _d={events:persistableEvents,tasks,courses,cats,sem,theme,showHolidays,settings,exams,assignments,officeHours,quickNotes,journalEntries,sleepSettings,sleepDayData,dashPriorities:nextPriorities,dashLayout:nextLayout,_ts:ts};
     svForUser(uid,_d);
-    if(user&&cloudSyncReady)upload(_d);
+    if(user&&cloudSyncReady){upload(_d);uploadDashToFirestore(user.uid,nextLayout,nextPriorities,ts);}
   };
 
 
@@ -917,7 +922,11 @@ function App(){
 
   useEffect(()=>{const h=(e)=>{
     if((e.metaKey||e.ctrlKey)&&e.key==="z"&&!e.shiftKey){if(e.target.isContentEditable)return;e.preventDefault();undo();return;}
-    if(modal||csOpen||settingsOpen||eaOpen)return;if(["INPUT","TEXTAREA","SELECT"].includes(e.target.tagName))return;if(e.target.isContentEditable)return;
+    if(modal||csOpen||settingsOpen||eaOpen)return;
+    const ae=document.activeElement;
+    if(ae&&(["INPUT","TEXTAREA","SELECT"].includes(ae.tagName)||ae.isContentEditable))return;
+    if(["INPUT","TEXTAREA","SELECT"].includes(e.target.tagName))return;
+    if(e.target.isContentEditable)return;
     switch(e.key){case"t":case"T":goT();break;
     case"d":case"D":lastCalViewRef.current="day";setView("day");setViewOpen(false);break;
     case"w":case"W":lastCalViewRef.current="week";setView("week");setViewOpen(false);break;
