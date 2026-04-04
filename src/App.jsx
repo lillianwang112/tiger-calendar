@@ -839,9 +839,15 @@ function App(){
     const ts=Date.now();
     const nextLayout=layoutOverride??dashLayout;
     const nextPriorities=prioritiesOverride??dashPriorities;
-    const _d={events:persistableEvents,tasks,courses,cats,sem,theme,showHolidays,settings,exams,assignments,officeHours,quickNotes,journalEntries,sleepSettings,sleepDayData,dashPriorities:nextPriorities,dashLayout:nextLayout,_ts:ts};
-    svForUser(user?.uid||(isGuest?"guest":null),_d);
     try{localStorage.setItem(SK_DASH,JSON.stringify({layout:nextLayout,priorities:nextPriorities,_ts:ts,_v:2}));}catch(e){}
+    const uid=user?.uid||(isGuest?"guest":null);
+    if(layoutOverride!==undefined||prioritiesOverride!==undefined){
+      const prev=ldForUser(uid)||{};
+      svForUser(uid,{...prev,dashLayout:nextLayout,dashPriorities:nextPriorities,_ts:ts});
+      return;
+    }
+    const _d={events:persistableEvents,tasks,courses,cats,sem,theme,showHolidays,settings,exams,assignments,officeHours,quickNotes,journalEntries,sleepSettings,sleepDayData,dashPriorities:nextPriorities,dashLayout:nextLayout,_ts:ts};
+    svForUser(uid,_d);
     if(user&&cloudSyncReady)upload(_d);
   };
 
