@@ -765,6 +765,7 @@ function App(){
   const{upload,restoreFromBackup,cloudSyncReady}=useFirestoreSync(user,{events:persistableEvents,tasks,courses,cats,sem,theme,showHolidays,settings,exams,assignments,officeHours,quickNotes,journalEntries,sleepSettings,sleepDayData,dashPriorities,dashLayout},syncSetters);
 
   useEffect(()=>{setAc(p=>{const n=new Set(p);Object.keys(cats).forEach(k=>n.add(k));n.add("_holidays");n.add("_officehours");return n;});},[cats]);
+  const _dashSaveFn=useRef(null);
   useEffect(()=>{
     // Gate svForUser behind cloudSyncReady: prevents writing the empty initial
     // state to localStorage before the cloud snapshot is applied, which would
@@ -775,6 +776,9 @@ function App(){
     svForUser(user?.uid||(isGuest?"guest":null),data);
     if(user)upload(data);
   },[persistableEvents,tasks,courses,cats,sem,theme,showHolidays,settings,exams,assignments,officeHours,quickNotes,journalEntries,sleepSettings,sleepDayData,dashPriorities,dashLayout,user,cloudSyncReady]);
+  // Always-fresh save fn for explicit saves (e.g. Done button). Not gated by
+  // cloudSyncReady so the user's intentional edits are never silently dropped.
+  _dashSaveFn.current=()=>{const ts=Date.now();svForUser(user?.uid||(isGuest?"guest":null),{events:persistableEvents,tasks,courses,cats,sem,theme,showHolidays,settings,exams,assignments,officeHours,quickNotes,journalEntries,sleepSettings,sleepDayData,dashPriorities,dashLayout,_ts:ts});};
 
 
 
@@ -1201,7 +1205,7 @@ function App(){
           {view==="tasks-dashboard"&&<TasksDashboard T={T} MO={MO} SE={SE} tasks={tasks} cats={cats} courses={courses} aT={aT} uT={uT} dT={dT} tT={tT} pushUndo={pushUndo}/>}
           {view==="notes-dashboard"&&<NotesDashboard T={T} MO={MO} SE={SE} quickNotes={quickNotes} setQuickNotes={setQuickNotes} journalEntries={journalEntries} setJournalEntries={setJournalEntries}/>}
           {view==="focus-dashboard"&&<FocusDashboard T={T} MO={MO} SE={SE} tasks={tasks} events={allEvents} courses={courses} cats={cats} exams={exams} assignments={assignments} sem={sem} setChatOpen={setChatOpen} sleepSettings={sleepSettings} setSleepSettings={setSleepSettings} sleepDayData={sleepDayData} setSleepDayData={setSleepDayData} setModal={setModal}/>}
-          {view==="home"&&<DashboardView T={T} MO={MO} SE={SE} user={user} allEvents={allEvents} tasks={tasks} cats={cats} courses={courses} dashPriorities={dashPriorities} setDashPriorities={setDashPriorities} sleepSettings={sleepSettings} sleepDayData={sleepDayData} sem={sem} exams={exams} assignments={assignments} dashLayout={dashLayout} setDashLayout={setDashLayout}/>}
+          {view==="home"&&<DashboardView T={T} MO={MO} SE={SE} user={user} allEvents={allEvents} tasks={tasks} cats={cats} courses={courses} dashPriorities={dashPriorities} setDashPriorities={setDashPriorities} sleepSettings={sleepSettings} sleepDayData={sleepDayData} sem={sem} exams={exams} assignments={assignments} dashLayout={dashLayout} setDashLayout={setDashLayout} onSave={()=>_dashSaveFn.current?.()}/>}
         </>}
       </div>
     </div>
@@ -7079,7 +7083,7 @@ function DashboardWidgetEditor({T,MO,widget,onClose,onSave}){
 }
 
 // ═══ DASHBOARD VIEW ═══
-function DashboardView({T,MO,SE,user,allEvents,tasks,cats,courses,dashPriorities,setDashPriorities,sleepSettings,sleepDayData,sem,exams,assignments,dashLayout,setDashLayout}){
+function DashboardView({T,MO,SE,user,allEvents,tasks,cats,courses,dashPriorities,setDashPriorities,sleepSettings,sleepDayData,sem,exams,assignments,dashLayout,setDashLayout,onSave}){
   const today=$d(new Date());
   const todayLabel=new Date().toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric",year:"numeric"});
   const firstName=user?.displayName?.split(" ")[0]||user?.email?.split("@")[0]||"there";
@@ -7467,7 +7471,7 @@ function DashboardView({T,MO,SE,user,allEvents,tasks,cats,courses,dashPriorities
             </p>}
         </div>
         {/* Customize button */}
-        <button onClick={()=>{setEditMode(p=>!p);setShowPicker(false);}}
+        <button onClick={()=>{if(editMode)onSave?.();setEditMode(p=>!p);setShowPicker(false);}}
           style={{padding:"9px 18px",borderRadius:10,
             border:`1px solid ${editMode?T.ac:T.bd}`,
             background:editMode?`${T.ac}18`:"transparent",
