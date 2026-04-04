@@ -342,9 +342,15 @@ function useFirestoreSync(user,_localData,setters){
     if(_trusted){
       if(_skd.layout&&setters.setDashLayout)setters.setDashLayout(_skd.layout);
       if(_skd.priorities&&setters.setDashPriorities)setters.setDashPriorities(_skd.priorities);
-    }else{
+    }else if(isInitial){
+      // Initial hydrate fallback: apply cloud values if no trusted local snapshot.
       if(cloud.dashLayout&&setters.setDashLayout)setters.setDashLayout(cloud.dashLayout);
       if(cloud.dashPriorities&&setters.setDashPriorities)setters.setDashPriorities(cloud.dashPriorities);
+    }else{
+      // Non-initial snapshots should not clobber user-customized dashboard state
+      // from local edits while network/listener reliability is uncertain.
+      if(!_skd?.layout&&cloud.dashLayout&&setters.setDashLayout)setters.setDashLayout(cloud.dashLayout);
+      if(!_skd?.priorities&&cloud.dashPriorities&&setters.setDashPriorities)setters.setDashPriorities(cloud.dashPriorities);
     }}
 
     // Directly regenerate ALL derived events rather than relying on useEffects.
