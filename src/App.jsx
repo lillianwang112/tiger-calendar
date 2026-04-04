@@ -815,9 +815,11 @@ function App(){
     // state to localStorage before the cloud snapshot is applied, which would
     // make ldForUser return an empty record and corrupt local-first detection.
     if(!cloudSyncReady) return;
+    const uid=user?.uid||(isGuest?"guest":null);
+    if(uid&&dashUidHydratedRef.current!==uid)return;
     const ts=Date.now();
     const data={events:persistableEvents,tasks,courses,cats,sem,theme,showHolidays,settings,exams,assignments,officeHours,quickNotes,journalEntries,sleepSettings,sleepDayData,dashPriorities,dashLayout,_ts:ts};
-    svForUser(user?.uid||(isGuest?"guest":null),data);
+    svForUser(uid,data);
     if(user)upload(data);
   },[persistableEvents,tasks,courses,cats,sem,theme,showHolidays,settings,exams,assignments,officeHours,quickNotes,journalEntries,sleepSettings,sleepDayData,dashPriorities,dashLayout,user,cloudSyncReady]);
   // Extra guardrail: hydrate dashboard widgets from per-user local cache as soon
