@@ -326,11 +326,21 @@ function useFirestoreSync(user,_localData,setters){
     if(cloud.journalEntries&&setters.setJournalEntries)setters.setJournalEntries(cloud.journalEntries);
     if(cloud.sleepSettings&&setters.setSleepSettings)setters.setSleepSettings(cloud.sleepSettings);
     if(cloud.sleepDayData&&setters.setSleepDayData)setters.setSleepDayData(cloud.sleepDayData);
-    // dashLayout / dashPriorities: same pattern as tasks — always apply cloud value.
-    // Firebase offline persistence buffers .set() locally so .get() returns pending
-    // writes even when the WebChannel sync is blocked (e.g. CORS on localhost).
-    if(cloud.dashLayout&&setters.setDashLayout)setters.setDashLayout(cloud.dashLayout);
-    if(cloud.dashPriorities&&setters.setDashPriorities)setters.setDashPriorities(cloud.dashPriorities);
+    // dashLayout / dashPriorities: use SK_DASH (localStorage) as the primary source
+    // when it was written by gated code (_v:2 flag). This is necessary because
+    // Firestore WebChannel CORS errors on localhost mean .get() may return only
+    // server-confirmed data, and dashLayout may never reach the server.
+    // SK_DASH is written to localStorage (reliable, no network) after cloudSyncReady.
+    // Fall back to cloud if SK_DASH is absent or was written by old ungated code.
+    {const _skd=(()=>{try{const r=localStorage.getItem(SK_DASH);return r?JSON.parse(r):null;}catch(e){return null;}})();
+    const _trusted=isInitial&&_skd&&_skd._v===2&&_skd._ts>(cloud._ts||0);
+    if(_trusted){
+      if(_skd.layout&&setters.setDashLayout)setters.setDashLayout(_skd.layout);
+      if(_skd.priorities&&setters.setDashPriorities)setters.setDashPriorities(_skd.priorities);
+    }else{
+      if(cloud.dashLayout&&setters.setDashLayout)setters.setDashLayout(cloud.dashLayout);
+      if(cloud.dashPriorities&&setters.setDashPriorities)setters.setDashPriorities(cloud.dashPriorities);
+    }}
 
     // Directly regenerate ALL derived events rather than relying on useEffects.
     // This avoids race conditions where sem/showHolidays don't "change" (same value
@@ -783,10 +793,12 @@ function App(){
   // initial-mount DEFAULT state is never written with a fresh timestamp that would
   // "win" over Firestore data on the next reload. Once cloudSyncReady is true,
   // applyCloud has already set dashLayout to the correct value.
-  useEffect(()=>{if(!cloudSyncReady)return;try{localStorage.setItem(SK_DASH,JSON.stringify({layout:dashLayout,priorities:dashPriorities,_ts:Date.now()}));}catch(e){};},[dashLayout,dashPriorities,cloudSyncReady]);
+  // _v:2 marks this as a gated write (post-cloudSyncReady). applyCloud uses this
+  // flag to distinguish reliable SK_DASH data from old ungated writes.
+  useEffect(()=>{if(!cloudSyncReady)return;try{localStorage.setItem(SK_DASH,JSON.stringify({layout:dashLayout,priorities:dashPriorities,_ts:Date.now(),_v:2}));}catch(e){};},[dashLayout,dashPriorities,cloudSyncReady]);
   // Always-fresh save fn for explicit saves (e.g. Done button). Not gated by
   // cloudSyncReady so the user's intentional edits are never silently dropped.
-  _dashSaveFn.current=()=>{const ts=Date.now();svForUser(user?.uid||(isGuest?"guest":null),{events:persistableEvents,tasks,courses,cats,sem,theme,showHolidays,settings,exams,assignments,officeHours,quickNotes,journalEntries,sleepSettings,sleepDayData,dashPriorities,dashLayout,_ts:ts});};
+  _dashSaveFn.current=()=>{const ts=Date.now();const _d={events:persistableEvents,tasks,courses,cats,sem,theme,showHolidays,settings,exams,assignments,officeHours,quickNotes,journalEntries,sleepSettings,sleepDayData,dashPriorities,dashLayout,_ts:ts};svForUser(user?.uid||(isGuest?"guest":null),_d);if(user&&cloudSyncReady)upload(_d);};
 
 
 
