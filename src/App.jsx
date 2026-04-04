@@ -326,11 +326,15 @@ function useFirestoreSync(user,_localData,setters){
     if(cloud.journalEntries&&setters.setJournalEntries)setters.setJournalEntries(cloud.journalEntries);
     if(cloud.sleepSettings&&setters.setSleepSettings)setters.setSleepSettings(cloud.sleepSettings);
     if(cloud.sleepDayData&&setters.setSleepDayData)setters.setSleepDayData(cloud.sleepDayData);
-    // dashLayout / dashPriorities: cloud (Firestore or ldForUser fallback) is always
-    // authoritative. SK_DASH is only used for the initial useState value to prevent
-    // a flash of DEFAULT while the cloud loads — it must not override cloud data.
-    if(cloud.dashLayout&&setters.setDashLayout)setters.setDashLayout(cloud.dashLayout);
-    if(cloud.dashPriorities&&setters.setDashPriorities)setters.setDashPriorities(cloud.dashPriorities);
+    // dashLayout / dashPriorities: on initial load, cross-check against the per-user
+    // localStorage key. If local is newer it means the last Firestore write failed
+    // (e.g. CORS-blocked on localhost) and local has the correct state.
+    // For live onSnapshot updates always trust the cloud.
+    {const _loc=isInitial&&user?ldForUser(user.uid):null;
+    const _useLocal=!!(_loc&&(_loc._ts||0)>(cloud._ts||0));
+    const _src=_useLocal?_loc:cloud;
+    if(_src.dashLayout&&setters.setDashLayout)setters.setDashLayout(_src.dashLayout);
+    if(_src.dashPriorities&&setters.setDashPriorities)setters.setDashPriorities(_src.dashPriorities);}
 
     // Directly regenerate ALL derived events rather than relying on useEffects.
     // This avoids race conditions where sem/showHolidays don't "change" (same value
