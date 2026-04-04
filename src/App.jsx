@@ -333,7 +333,11 @@ function useFirestoreSync(user,_localData,setters){
     // SK_DASH is written to localStorage (reliable, no network) after cloudSyncReady.
     // Fall back to cloud if SK_DASH is absent or was written by old ungated code.
     {const _skd=(()=>{try{const r=localStorage.getItem(SK_DASH);return r?JSON.parse(r):null;}catch(e){return null;}})();
-    const _trusted=isInitial&&_skd&&_skd._v===2&&_skd._ts>(cloud._ts||0);
+    // Dashboard customization is device-personal and should be resilient to
+    // stale/failed cloud writes. If we have a post-migration local snapshot,
+    // prefer it on initial hydration instead of comparing timestamps with the
+    // whole cloud document (whose _ts can advance for unrelated fields).
+    const _trusted=isInitial&&_skd&&_skd._v===2&&Array.isArray(_skd.layout);
     console.log("[DASH applyCloud]",{isInitial,cloudDashLayout:cloud.dashLayout,cloudTs:cloud._ts,skdLayout:_skd?.layout,skdTs:_skd?._ts,skdV:_skd?._v,trusted:_trusted});
     if(_trusted){
       if(_skd.layout&&setters.setDashLayout)setters.setDashLayout(_skd.layout);
@@ -479,7 +483,13 @@ function useFirestoreSync(user,_localData,setters){
     uploadToFirestore(user.uid,backup);
   },[user]);
 
-  return{upload,restoreFromBackup,cloudSyncReady};
+  // Guard against the auth-transition race: when `user` flips from null -> uid,
+  // React can render once with stale `cloudSyncReady===true` from the previous
+  // signed-out state before the user-scoped sync effect sets it false. In that
+  // render, save effects must remain blocked to avoid writing default dashboard
+  // layout/state over real cloud data.
+  const effectiveCloudSyncReady=!user||(cloudSyncReady&&cloudReadyRef.current);
+  return{upload,restoreFromBackup,cloudSyncReady:effectiveCloudSyncReady};
 }
 
 function uploadToFirestore(uid,data){
@@ -697,6 +707,7 @@ function App(){
     {id:"dw_priorities",type:"priorities"},
   ];
   const[dashLayout,setDashLayout]=useState(_savedDash?.layout||saved?.dashLayout||DEFAULT_DASH_LAYOUT);
+  const dashUidHydratedRef=useRef(null);
   // remember last calendar view so the calendar icon button returns to it
   const lastCalViewRef=useRef(view==="tasks-dashboard"||view==="notes-dashboard"||view==="focus-dashboard"?"week":view);
 
@@ -790,13 +801,38 @@ function App(){
     svForUser(user?.uid||(isGuest?"guest":null),data);
     if(user)upload(data);
   },[persistableEvents,tasks,courses,cats,sem,theme,showHolidays,settings,exams,assignments,officeHours,quickNotes,journalEntries,sleepSettings,sleepDayData,dashPriorities,dashLayout,user,cloudSyncReady]);
-  // Persist dashboard layout to SK_DASH after cloudSyncReady — gating ensures the
-  // initial-mount DEFAULT state is never written with a fresh timestamp that would
-  // "win" over Firestore data on the next reload. Once cloudSyncReady is true,
-  // applyCloud has already set dashLayout to the correct value.
-  // _v:2 marks this as a gated write (post-cloudSyncReady). applyCloud uses this
-  // flag to distinguish reliable SK_DASH data from old ungated writes.
-  useEffect(()=>{if(!cloudSyncReady)return;const _skd={layout:dashLayout,priorities:dashPriorities,_ts:Date.now(),_v:2};console.log("[DASH SK_DASH write]",{widgetCount:dashLayout.length,_ts:_skd._ts});try{localStorage.setItem(SK_DASH,JSON.stringify(_skd));}catch(e){};},[dashLayout,dashPriorities,cloudSyncReady]);
+  // Extra guardrail: hydrate dashboard widgets from per-user local cache as soon
+  // as auth resolves. This keeps widgets consistent with the rest of local user
+  // data even when Firestore listeners fail (CORS/WebChannel issues).
+  useEffect(()=>{
+    const uid=user?.uid||(isGuest?"guest":null);
+    if(!uid||dashUidHydratedRef.current===uid)return;
+    dashUidHydratedRef.current=uid;
+    const cached=ldForUser(uid);
+    if(cached?.dashLayout&&Array.isArray(cached.dashLayout))setDashLayout(cached.dashLayout);
+    if(cached?.dashPriorities&&Array.isArray(cached.dashPriorities))setDashPriorities(cached.dashPriorities);
+  },[user?.uid,isGuest]);
+  // Persist dashboard layout to SK_DASH for all post-mount changes.
+  // Skip the very first render so the initial default state never stamps a
+  // fresh timestamp before hydration, but still save user edits immediately
+  // even if cloud sync is delayed/unavailable.
+  const dashLocalWriteReadyRef=useRef(false);
+  useEffect(()=>{
+    if(!dashLocalWriteReadyRef.current){dashLocalWriteReadyRef.current=true;return;}
+    const _skd={layout:dashLayout,priorities:dashPriorities,_ts:Date.now(),_v:2};
+    console.log("[DASH SK_DASH write]",{widgetCount:dashLayout.length,_ts:_skd._ts});
+    try{localStorage.setItem(SK_DASH,JSON.stringify(_skd));}catch(e){}
+  },[dashLayout,dashPriorities]);
+  // Mirror dashboard state into the per-user storage slot on each edit so
+  // reloads can recover even if global SK_DASH is unavailable in the runtime.
+  const dashUserWriteReadyRef=useRef(false);
+  useEffect(()=>{
+    const uid=user?.uid||(isGuest?"guest":null);
+    if(!uid)return;
+    if(!dashUserWriteReadyRef.current){dashUserWriteReadyRef.current=true;return;}
+    const prev=ldForUser(uid)||{};
+    svForUser(uid,{...prev,dashLayout,dashPriorities,_ts:Date.now()});
+  },[dashLayout,dashPriorities,user?.uid,isGuest]);
   // Always-fresh save fn for explicit saves (e.g. Done button). Not gated by
   // cloudSyncReady so the user's intentional edits are never silently dropped.
   _dashSaveFn.current=()=>{const ts=Date.now();const _d={events:persistableEvents,tasks,courses,cats,sem,theme,showHolidays,settings,exams,assignments,officeHours,quickNotes,journalEntries,sleepSettings,sleepDayData,dashPriorities,dashLayout,_ts:ts};svForUser(user?.uid||(isGuest?"guest":null),_d);if(user&&cloudSyncReady)upload(_d);};
@@ -1491,6 +1527,8 @@ function TGSwipe({T,panels,events,tasks,cats,ac,setModal,modal,MO,SE,drag,setDra
   // Register non-passive touchmove/end on each panel column strip
   const attachTouch=useCallback((el)=>{
     if(!el)return;
+    if(el.dataset.tcTouchAttached==="1")return;
+    el.dataset.tcTouchAttached="1";
     const onTM=(e)=>{
       // If a pinch is active, ignore all single-finger drag logic
       if(pinchRef.current)return;
@@ -1528,7 +1566,7 @@ function TGSwipe({T,panels,events,tasks,cats,ac,setModal,modal,MO,SE,drag,setDra
       } else setDrag(null);
     };
     el.addEventListener("touchmove",onTM,{passive:false});el.addEventListener("touchend",onTE);el.addEventListener("touchcancel",onTE);
-    return()=>{el.removeEventListener("touchmove",onTM);el.removeEventListener("touchend",onTE);el.removeEventListener("touchcancel",onTE);};
+    return()=>{delete el.dataset.tcTouchAttached;el.removeEventListener("touchmove",onTM);el.removeEventListener("touchend",onTE);el.removeEventListener("touchcancel",onTE);};
   },[clientYToHour,cancelLP,setDrag,setModal]);
 
   const layoutEvents=(evs)=>{
@@ -1683,7 +1721,7 @@ function TGSwipe({T,panels,events,tasks,cats,ac,setModal,modal,MO,SE,drag,setDra
       <div style={{flex:1,overflow:"hidden",position:"relative",height:hh*24}}>
         <div style={{...slideStyle,position:"relative",height:hh*24}}>
           {panels.map(({key,dates})=>{
-            const colRef=(el)=>attachTouch(el);
+            const colRef=(el)=>{attachTouch(el);};
             return <div key={key} ref={colRef} style={{width:"33.333%",flexShrink:0,display:"flex",height:hh*24}}>
               {dates.map(d=>{const ds=$d(d),it=$td(d),laid=layoutEvents(events.filter(e=>e.date===ds&&!e._allDay&&(ac.has(e.category)||e._taskDueId||e._sleepId)));
                 return <div key={ds} onMouseDown={e=>mD(e,ds)} onTouchStart={e=>tSD(e,ds)}
