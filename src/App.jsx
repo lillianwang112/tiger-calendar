@@ -835,7 +835,15 @@ function App(){
   },[dashLayout,dashPriorities,user?.uid,isGuest]);
   // Always-fresh save fn for explicit saves (e.g. Done button). Not gated by
   // cloudSyncReady so the user's intentional edits are never silently dropped.
-  _dashSaveFn.current=()=>{const ts=Date.now();const _d={events:persistableEvents,tasks,courses,cats,sem,theme,showHolidays,settings,exams,assignments,officeHours,quickNotes,journalEntries,sleepSettings,sleepDayData,dashPriorities,dashLayout,_ts:ts};svForUser(user?.uid||(isGuest?"guest":null),_d);if(user&&cloudSyncReady)upload(_d);};
+  _dashSaveFn.current=(layoutOverride,prioritiesOverride)=>{
+    const ts=Date.now();
+    const nextLayout=layoutOverride??dashLayout;
+    const nextPriorities=prioritiesOverride??dashPriorities;
+    const _d={events:persistableEvents,tasks,courses,cats,sem,theme,showHolidays,settings,exams,assignments,officeHours,quickNotes,journalEntries,sleepSettings,sleepDayData,dashPriorities:nextPriorities,dashLayout:nextLayout,_ts:ts};
+    svForUser(user?.uid||(isGuest?"guest":null),_d);
+    try{localStorage.setItem(SK_DASH,JSON.stringify({layout:nextLayout,priorities:nextPriorities,_ts:ts,_v:2}));}catch(e){}
+    if(user&&cloudSyncReady)upload(_d);
+  };
 
 
 
@@ -1262,7 +1270,7 @@ function App(){
           {view==="tasks-dashboard"&&<TasksDashboard T={T} MO={MO} SE={SE} tasks={tasks} cats={cats} courses={courses} aT={aT} uT={uT} dT={dT} tT={tT} pushUndo={pushUndo}/>}
           {view==="notes-dashboard"&&<NotesDashboard T={T} MO={MO} SE={SE} quickNotes={quickNotes} setQuickNotes={setQuickNotes} journalEntries={journalEntries} setJournalEntries={setJournalEntries}/>}
           {view==="focus-dashboard"&&<FocusDashboard T={T} MO={MO} SE={SE} tasks={tasks} events={allEvents} courses={courses} cats={cats} exams={exams} assignments={assignments} sem={sem} setChatOpen={setChatOpen} sleepSettings={sleepSettings} setSleepSettings={setSleepSettings} sleepDayData={sleepDayData} setSleepDayData={setSleepDayData} setModal={setModal}/>}
-          {view==="home"&&<DashboardView T={T} MO={MO} SE={SE} user={user} allEvents={allEvents} tasks={tasks} cats={cats} courses={courses} dashPriorities={dashPriorities} setDashPriorities={setDashPriorities} sleepSettings={sleepSettings} sleepDayData={sleepDayData} sem={sem} exams={exams} assignments={assignments} dashLayout={dashLayout} setDashLayout={setDashLayout} onSave={()=>_dashSaveFn.current?.()}/>}
+          {view==="home"&&<DashboardView T={T} MO={MO} SE={SE} user={user} allEvents={allEvents} tasks={tasks} cats={cats} courses={courses} dashPriorities={dashPriorities} setDashPriorities={setDashPriorities} sleepSettings={sleepSettings} sleepDayData={sleepDayData} sem={sem} exams={exams} assignments={assignments} dashLayout={dashLayout} setDashLayout={setDashLayout} onSave={(layout,priorities)=>_dashSaveFn.current?.(layout,priorities)}/>}
         </>}
       </div>
     </div>
@@ -7198,13 +7206,13 @@ function DashboardView({T,MO,SE,user,allEvents,tasks,cats,courses,dashPriorities
 
   // ── Priorities helpers ──
   const[newP,setNewP]=useState("");
-  const addPriority=()=>{if(!newP.trim())return;setDashPriorities(p=>[...p,{id:gi(),text:newP.trim(),done:false}]);setNewP("");};
-  const togglePriority=(id)=>setDashPriorities(p=>p.map(x=>x.id===id?{...x,done:!x.done}:x));
-  const deletePriority=(id)=>setDashPriorities(p=>p.filter(x=>x.id!==id));
+  const addPriority=()=>{if(!newP.trim())return;setDashPriorities(p=>{const n=[...p,{id:gi(),text:newP.trim(),done:false}];onSave?.(dashLayout,n);return n;});setNewP("");};
+  const togglePriority=(id)=>setDashPriorities(p=>{const n=p.map(x=>x.id===id?{...x,done:!x.done}:x);onSave?.(dashLayout,n);return n;});
+  const deletePriority=(id)=>setDashPriorities(p=>{const n=p.filter(x=>x.id!==id);onSave?.(dashLayout,n);return n;});
   const movePriority=(id,dir)=>setDashPriorities(p=>{
     const i=p.findIndex(x=>x.id===id);if(i<0)return p;
     const ni=i+dir;if(ni<0||ni>=p.length)return p;
-    const n=[...p];[n[i],n[ni]]=[n[ni],n[i]];return n;
+    const n=[...p];[n[i],n[ni]]=[n[ni],n[i]];onSave?.(dashLayout,n);return n;
   });
 
   // ── Layout helpers ──
@@ -7214,12 +7222,12 @@ function DashboardView({T,MO,SE,user,allEvents,tasks,cats,courses,dashPriorities
   const moveWidget=(id,dir)=>setDashLayout(p=>{
     const i=p.findIndex(w=>w.id===id);if(i<0)return p;
     const ni=i+dir;if(ni<0||ni>=p.length)return p;
-    const n=[...p];[n[i],n[ni]]=[n[ni],n[i]];return n;
+    const n=[...p];[n[i],n[ni]]=[n[ni],n[i]];onSave?.(n,dashPriorities);return n;
   });
-  const removeWidget=(id)=>setDashLayout(p=>p.filter(w=>w.id!==id));
-  const addWidget=(type)=>setDashLayout(p=>[...p,{id:gi(),type,config:{},width:"half"}]);
-  const updateWidgetConfig=(id,cfg)=>setDashLayout(p=>p.map(w=>w.id===id?{...w,config:{...w.config,...cfg}}:w));
-  const toggleWidth=(id)=>setDashLayout(p=>p.map(w=>w.id===id?{...w,width:w.width==="full"?"half":"full"}:w));
+  const removeWidget=(id)=>setDashLayout(p=>{const n=p.filter(w=>w.id!==id);onSave?.(n,dashPriorities);return n;});
+  const addWidget=(type)=>setDashLayout(p=>{const n=[...p,{id:gi(),type,config:{},width:"half"}];onSave?.(n,dashPriorities);return n;});
+  const updateWidgetConfig=(id,cfg)=>setDashLayout(p=>{const n=p.map(w=>w.id===id?{...w,config:{...w.config,...cfg}}:w);onSave?.(n,dashPriorities);return n;});
+  const toggleWidth=(id)=>setDashLayout(p=>{const n=p.map(w=>w.id===id?{...w,width:w.width==="full"?"half":"full"}:w);onSave?.(n,dashPriorities);return n;});
 
   // ── Widget content renderers ──
   const WTitle=({icon,label,sub})=>(
