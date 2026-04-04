@@ -350,20 +350,15 @@ function useFirestoreSync(user,_localData,setters){
     // stale/failed cloud writes. If we have a post-migration local snapshot,
     // prefer it on initial hydration instead of comparing timestamps with the
     // whole cloud document (whose _ts can advance for unrelated fields).
-    const _trusted=isInitial&&_skd&&_skd._v===2&&Array.isArray(_skd.layout);
+    const _trusted=!!(_skd&&_skd._v===2&&Array.isArray(_skd.layout));
     console.log("[DASH applyCloud]",{isInitial,cloudDashLayout:cloud.dashLayout,cloudTs:cloud._ts,skdLayout:_skd?.layout,skdTs:_skd?._ts,skdV:_skd?._v,trusted:_trusted});
     if(_trusted){
       if(_skd.layout&&setters.setDashLayout)setters.setDashLayout(_skd.layout);
       if(_skd.priorities&&setters.setDashPriorities)setters.setDashPriorities(_skd.priorities);
-    }else if(isInitial){
-      // Initial hydrate fallback: apply cloud values if no trusted local snapshot.
+    }else{
+      // Fallback only when there is no trusted local dashboard snapshot.
       if(cloud.dashLayout&&setters.setDashLayout)setters.setDashLayout(cloud.dashLayout);
       if(cloud.dashPriorities&&setters.setDashPriorities)setters.setDashPriorities(cloud.dashPriorities);
-    }else{
-      // Non-initial snapshots should not clobber user-customized dashboard state
-      // from local edits while network/listener reliability is uncertain.
-      if(!_skd?.layout&&cloud.dashLayout&&setters.setDashLayout)setters.setDashLayout(cloud.dashLayout);
-      if(!_skd?.priorities&&cloud.dashPriorities&&setters.setDashPriorities)setters.setDashPriorities(cloud.dashPriorities);
     }}
 
     // Directly regenerate ALL derived events rather than relying on useEffects.
@@ -1603,8 +1598,9 @@ function TGSwipe({T,panels,events,tasks,cats,ac,setModal,modal,MO,SE,drag,setDra
         setDrag(null);setModal({type:"_tapPreview",date:lp.ds,sH:lp.sH,sM:lp.sM,eH:lp.sH,eM:lp.sM+60});
       } else setDrag(null);
     };
-    el.addEventListener("touchmove",onTM,{passive:false});el.addEventListener("touchend",onTE);el.addEventListener("touchcancel",onTE);
-    return()=>{delete el.dataset.tcTouchAttached;el.removeEventListener("touchmove",onTM);el.removeEventListener("touchend",onTE);el.removeEventListener("touchcancel",onTE);};
+    el.addEventListener("touchmove",onTM,{passive:false});
+    el.addEventListener("touchend",onTE);
+    el.addEventListener("touchcancel",onTE);
   },[clientYToHour,cancelLP,setDrag,setModal]);
 
   const layoutEvents=(evs)=>{
