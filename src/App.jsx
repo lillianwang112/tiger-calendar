@@ -326,15 +326,21 @@ function useFirestoreSync(user,_localData,setters){
     if(cloud.journalEntries&&setters.setJournalEntries)setters.setJournalEntries(cloud.journalEntries);
     if(cloud.sleepSettings&&setters.setSleepSettings)setters.setSleepSettings(cloud.sleepSettings);
     if(cloud.sleepDayData&&setters.setSleepDayData)setters.setSleepDayData(cloud.sleepDayData);
-    // dashLayout / dashPriorities: on initial load, cross-check against the per-user
-    // localStorage key. If local is newer it means the last Firestore write failed
-    // (e.g. CORS-blocked on localhost) and local has the correct state.
+    // dashLayout / dashPriorities: on initial load, cross-check against SK_DASH
+    // (the dedicated dashboard localStorage key). SK_DASH is only written AFTER
+    // cloudSyncReady becomes true, so its _ts is meaningful (not a boot-time poison).
+    // If SK_DASH is newer it means the last Firestore write failed
+    // (e.g. CORS-blocked on localhost) and SK_DASH has the correct state.
     // For live onSnapshot updates always trust the cloud.
-    {const _loc=isInitial&&user?ldForUser(user.uid):null;
-    const _useLocal=!!(_loc&&(_loc._ts||0)>(cloud._ts||0));
-    const _src=_useLocal?_loc:cloud;
-    if(_src.dashLayout&&setters.setDashLayout)setters.setDashLayout(_src.dashLayout);
-    if(_src.dashPriorities&&setters.setDashPriorities)setters.setDashPriorities(_src.dashPriorities);}
+    {const _skd=(()=>{try{const r=localStorage.getItem(SK_DASH);return r?JSON.parse(r):null;}catch(e){return null;}})();
+    const _useSkDash=isInitial&&!!(_skd&&(_skd._ts||0)>(cloud._ts||0));
+    if(_useSkDash){
+      if(_skd.layout&&setters.setDashLayout)setters.setDashLayout(_skd.layout);
+      if(_skd.priorities&&setters.setDashPriorities)setters.setDashPriorities(_skd.priorities);
+    }else{
+      if(cloud.dashLayout&&setters.setDashLayout)setters.setDashLayout(cloud.dashLayout);
+      if(cloud.dashPriorities&&setters.setDashPriorities)setters.setDashPriorities(cloud.dashPriorities);
+    }}
 
     // Directly regenerate ALL derived events rather than relying on useEffects.
     // This avoids race conditions where sem/showHolidays don't "change" (same value
@@ -783,9 +789,11 @@ function App(){
     svForUser(user?.uid||(isGuest?"guest":null),data);
     if(user)upload(data);
   },[persistableEvents,tasks,courses,cats,sem,theme,showHolidays,settings,exams,assignments,officeHours,quickNotes,journalEntries,sleepSettings,sleepDayData,dashPriorities,dashLayout,user,cloudSyncReady]);
-  // Persist dashboard layout to SK_DASH on every change — no cloudSyncReady gate,
-  // no auth check — so it survives reload for ALL users (guests, signed-in, no-firebase).
-  useEffect(()=>{try{localStorage.setItem(SK_DASH,JSON.stringify({layout:dashLayout,priorities:dashPriorities,_ts:Date.now()}));}catch(e){};},[dashLayout,dashPriorities]);
+  // Persist dashboard layout to SK_DASH after cloudSyncReady — gating ensures the
+  // initial-mount DEFAULT state is never written with a fresh timestamp that would
+  // "win" over Firestore data on the next reload. Once cloudSyncReady is true,
+  // applyCloud has already set dashLayout to the correct value.
+  useEffect(()=>{if(!cloudSyncReady)return;try{localStorage.setItem(SK_DASH,JSON.stringify({layout:dashLayout,priorities:dashPriorities,_ts:Date.now()}));}catch(e){};},[dashLayout,dashPriorities,cloudSyncReady]);
   // Always-fresh save fn for explicit saves (e.g. Done button). Not gated by
   // cloudSyncReady so the user's intentional edits are never silently dropped.
   _dashSaveFn.current=()=>{const ts=Date.now();svForUser(user?.uid||(isGuest?"guest":null),{events:persistableEvents,tasks,courses,cats,sem,theme,showHolidays,settings,exams,assignments,officeHours,quickNotes,journalEntries,sleepSettings,sleepDayData,dashPriorities,dashLayout,_ts:ts});};
@@ -7500,7 +7508,7 @@ function DashboardView({T,MO,SE,user,allEvents,tasks,cats,courses,dashPriorities
       <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:14,alignItems:"start"}}>
         {dashLayout.map(w=>(
           <div key={w.id} style={{gridColumn:w.width==="full"?"1 / -1":"auto"}}>
-            <WCard w={w}>{renderWidget(w)}</WCard>
+            {WCard({w,children:renderWidget(w)})}
           </div>
         ))}
       </div>
