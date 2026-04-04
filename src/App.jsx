@@ -479,7 +479,13 @@ function useFirestoreSync(user,_localData,setters){
     uploadToFirestore(user.uid,backup);
   },[user]);
 
-  return{upload,restoreFromBackup,cloudSyncReady};
+  // Guard against the auth-transition race: when `user` flips from null -> uid,
+  // React can render once with stale `cloudSyncReady===true` from the previous
+  // signed-out state before the user-scoped sync effect sets it false. In that
+  // render, save effects must remain blocked to avoid writing default dashboard
+  // layout/state over real cloud data.
+  const effectiveCloudSyncReady=!user||(cloudSyncReady&&cloudReadyRef.current);
+  return{upload,restoreFromBackup,cloudSyncReady:effectiveCloudSyncReady};
 }
 
 function uploadToFirestore(uid,data){
