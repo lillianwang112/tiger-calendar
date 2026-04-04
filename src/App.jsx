@@ -334,6 +334,7 @@ function useFirestoreSync(user,_localData,setters){
     // Fall back to cloud if SK_DASH is absent or was written by old ungated code.
     {const _skd=(()=>{try{const r=localStorage.getItem(SK_DASH);return r?JSON.parse(r):null;}catch(e){return null;}})();
     const _trusted=isInitial&&_skd&&_skd._v===2&&_skd._ts>(cloud._ts||0);
+    console.log("[DASH applyCloud]",{isInitial,cloudDashLayout:cloud.dashLayout,cloudTs:cloud._ts,skdLayout:_skd?.layout,skdTs:_skd?._ts,skdV:_skd?._v,trusted:_trusted});
     if(_trusted){
       if(_skd.layout&&setters.setDashLayout)setters.setDashLayout(_skd.layout);
       if(_skd.priorities&&setters.setDashPriorities)setters.setDashPriorities(_skd.priorities);
@@ -795,7 +796,7 @@ function App(){
   // applyCloud has already set dashLayout to the correct value.
   // _v:2 marks this as a gated write (post-cloudSyncReady). applyCloud uses this
   // flag to distinguish reliable SK_DASH data from old ungated writes.
-  useEffect(()=>{if(!cloudSyncReady)return;try{localStorage.setItem(SK_DASH,JSON.stringify({layout:dashLayout,priorities:dashPriorities,_ts:Date.now(),_v:2}));}catch(e){};},[dashLayout,dashPriorities,cloudSyncReady]);
+  useEffect(()=>{if(!cloudSyncReady)return;const _skd={layout:dashLayout,priorities:dashPriorities,_ts:Date.now(),_v:2};console.log("[DASH SK_DASH write]",{widgetCount:dashLayout.length,_ts:_skd._ts});try{localStorage.setItem(SK_DASH,JSON.stringify(_skd));}catch(e){};},[dashLayout,dashPriorities,cloudSyncReady]);
   // Always-fresh save fn for explicit saves (e.g. Done button). Not gated by
   // cloudSyncReady so the user's intentional edits are never silently dropped.
   _dashSaveFn.current=()=>{const ts=Date.now();const _d={events:persistableEvents,tasks,courses,cats,sem,theme,showHolidays,settings,exams,assignments,officeHours,quickNotes,journalEntries,sleepSettings,sleepDayData,dashPriorities,dashLayout,_ts:ts};svForUser(user?.uid||(isGuest?"guest":null),_d);if(user&&cloudSyncReady)upload(_d);};
