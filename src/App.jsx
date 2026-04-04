@@ -429,7 +429,9 @@ function useFirestoreSync(user,_localData,setters){
       // cause the save useEffect to immediately overwrite good localStorage data with
       // an empty snapshot.
       const local=ldForUser(user.uid);
-      if(local&&(local.events?.length||local.tasks?.length||local.courses?.length)){
+      if(local){
+        // Always apply local data on Firestore error — even if events/tasks/courses
+        // are empty, we still need dashLayout/dashPriorities from local storage.
         applyCloud(local,true);
       } else {
         cloudReadyRef.current=true;setCloudSyncReady(true);
