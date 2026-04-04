@@ -325,6 +325,8 @@ function useFirestoreSync(user,_localData,setters){
     if(cloud.journalEntries&&setters.setJournalEntries)setters.setJournalEntries(cloud.journalEntries);
     if(cloud.sleepSettings&&setters.setSleepSettings)setters.setSleepSettings(cloud.sleepSettings);
     if(cloud.sleepDayData&&setters.setSleepDayData)setters.setSleepDayData(cloud.sleepDayData);
+    if(cloud.dashPriorities&&setters.setDashPriorities)setters.setDashPriorities(cloud.dashPriorities);
+    if(cloud.dashLayout&&setters.setDashLayout)setters.setDashLayout(cloud.dashLayout);
 
     // Directly regenerate ALL derived events rather than relying on useEffects.
     // This avoids race conditions where sem/showHolidays don't "change" (same value
