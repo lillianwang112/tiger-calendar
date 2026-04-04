@@ -30,6 +30,7 @@ const DN=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
 const DNF=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
 const SK="tiger_calendar_v3";
 const SK_DASH="tc_dash"; // dedicated key for dashboard layout — always read/written, no auth gate
+const sameJSON=(a,b)=>{try{return JSON.stringify(a)===JSON.stringify(b);}catch(e){return false;}};
 const gi=()=>"id_"+Math.random().toString(36).slice(2,10)+Date.now().toString(36);
 // Global flag: true while a horizontal swipe navigation is in progress.
 // Pinch-to-zoom checks this and ignores two-finger gestures during swipe.
@@ -353,12 +354,12 @@ function useFirestoreSync(user,_localData,setters){
     const _trusted=!!(_skd&&Array.isArray(_skd.layout));
     console.log("[DASH applyCloud]",{isInitial,cloudDashLayout:cloud.dashLayout,cloudTs:cloud._ts,skdLayout:_skd?.layout,skdTs:_skd?._ts,skdV:_skd?._v,trusted:_trusted});
     if(_trusted){
-      if(_skd.layout&&setters.setDashLayout)setters.setDashLayout(_skd.layout);
-      if(_skd.priorities&&setters.setDashPriorities)setters.setDashPriorities(_skd.priorities);
+      if(_skd.layout&&setters.setDashLayout)setters.setDashLayout(prev=>sameJSON(prev,_skd.layout)?prev:_skd.layout);
+      if(_skd.priorities&&setters.setDashPriorities)setters.setDashPriorities(prev=>sameJSON(prev,_skd.priorities)?prev:_skd.priorities);
     }else{
       // Fallback only when there is no trusted local dashboard snapshot.
-      if(cloud.dashLayout&&setters.setDashLayout)setters.setDashLayout(cloud.dashLayout);
-      if(cloud.dashPriorities&&setters.setDashPriorities)setters.setDashPriorities(cloud.dashPriorities);
+      if(cloud.dashLayout&&setters.setDashLayout)setters.setDashLayout(prev=>sameJSON(prev,cloud.dashLayout)?prev:cloud.dashLayout);
+      if(cloud.dashPriorities&&setters.setDashPriorities)setters.setDashPriorities(prev=>sameJSON(prev,cloud.dashPriorities)?prev:cloud.dashPriorities);
     }}
 
     // Directly regenerate ALL derived events rather than relying on useEffects.
