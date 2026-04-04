@@ -350,7 +350,7 @@ function useFirestoreSync(user,_localData,setters){
     // stale/failed cloud writes. If we have a post-migration local snapshot,
     // prefer it on initial hydration instead of comparing timestamps with the
     // whole cloud document (whose _ts can advance for unrelated fields).
-    const _trusted=!!(_skd&&_skd._v===2&&Array.isArray(_skd.layout));
+    const _trusted=!!(_skd&&Array.isArray(_skd.layout));
     console.log("[DASH applyCloud]",{isInitial,cloudDashLayout:cloud.dashLayout,cloudTs:cloud._ts,skdLayout:_skd?.layout,skdTs:_skd?._ts,skdV:_skd?._v,trusted:_trusted});
     if(_trusted){
       if(_skd.layout&&setters.setDashLayout)setters.setDashLayout(_skd.layout);
@@ -1755,8 +1755,7 @@ function TGSwipe({T,panels,events,tasks,cats,ac,setModal,modal,MO,SE,drag,setDra
       <div style={{flex:1,overflow:"hidden",position:"relative",height:hh*24}}>
         <div style={{...slideStyle,position:"relative",height:hh*24}}>
           {panels.map(({key,dates})=>{
-            const colRef=(el)=>{attachTouch(el);};
-            return <div key={key} ref={colRef} style={{width:"33.333%",flexShrink:0,display:"flex",height:hh*24}}>
+            return <div key={key} ref={attachTouch} style={{width:"33.333%",flexShrink:0,display:"flex",height:hh*24}}>
               {dates.map(d=>{const ds=$d(d),it=$td(d),laid=layoutEvents(events.filter(e=>e.date===ds&&!e._allDay&&(ac.has(e.category)||e._taskDueId||e._sleepId)));
                 return <div key={ds} onMouseDown={e=>mD(e,ds)} onTouchStart={e=>tSD(e,ds)}
                   style={{position:"relative",flex:1,borderLeft:`1px solid ${T.bd}`,background:it?T.tb:"transparent",cursor:"crosshair",touchAction:"pan-y"}}>
