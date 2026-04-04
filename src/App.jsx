@@ -326,21 +326,11 @@ function useFirestoreSync(user,_localData,setters){
     if(cloud.journalEntries&&setters.setJournalEntries)setters.setJournalEntries(cloud.journalEntries);
     if(cloud.sleepSettings&&setters.setSleepSettings)setters.setSleepSettings(cloud.sleepSettings);
     if(cloud.sleepDayData&&setters.setSleepDayData)setters.setSleepDayData(cloud.sleepDayData);
-    // dashLayout / dashPriorities: on initial load, cross-check against SK_DASH
-    // (the dedicated dashboard localStorage key). SK_DASH is only written AFTER
-    // cloudSyncReady becomes true, so its _ts is meaningful (not a boot-time poison).
-    // If SK_DASH is newer it means the last Firestore write failed
-    // (e.g. CORS-blocked on localhost) and SK_DASH has the correct state.
-    // For live onSnapshot updates always trust the cloud.
-    {const _skd=(()=>{try{const r=localStorage.getItem(SK_DASH);return r?JSON.parse(r):null;}catch(e){return null;}})();
-    const _useSkDash=isInitial&&!!(_skd&&(_skd._ts||0)>(cloud._ts||0));
-    if(_useSkDash){
-      if(_skd.layout&&setters.setDashLayout)setters.setDashLayout(_skd.layout);
-      if(_skd.priorities&&setters.setDashPriorities)setters.setDashPriorities(_skd.priorities);
-    }else{
-      if(cloud.dashLayout&&setters.setDashLayout)setters.setDashLayout(cloud.dashLayout);
-      if(cloud.dashPriorities&&setters.setDashPriorities)setters.setDashPriorities(cloud.dashPriorities);
-    }}
+    // dashLayout / dashPriorities: same pattern as tasks — always apply cloud value.
+    // Firebase offline persistence buffers .set() locally so .get() returns pending
+    // writes even when the WebChannel sync is blocked (e.g. CORS on localhost).
+    if(cloud.dashLayout&&setters.setDashLayout)setters.setDashLayout(cloud.dashLayout);
+    if(cloud.dashPriorities&&setters.setDashPriorities)setters.setDashPriorities(cloud.dashPriorities);
 
     // Directly regenerate ALL derived events rather than relying on useEffects.
     // This avoids race conditions where sem/showHolidays don't "change" (same value
