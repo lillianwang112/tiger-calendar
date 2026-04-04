@@ -326,17 +326,11 @@ function useFirestoreSync(user,_localData,setters){
     if(cloud.journalEntries&&setters.setJournalEntries)setters.setJournalEntries(cloud.journalEntries);
     if(cloud.sleepSettings&&setters.setSleepSettings)setters.setSleepSettings(cloud.sleepSettings);
     if(cloud.sleepDayData&&setters.setSleepDayData)setters.setSleepDayData(cloud.sleepDayData);
-    // dashLayout / dashPriorities: use SK_DASH dedicated key for comparison.
-    // SK_DASH is written ungated on every change, so it is always up-to-date.
-    // On initial load prefer whichever source is newer; on live updates (onSnapshot)
-    // always trust the incoming cloud data since echo-protection already filtered it.
-    try{
-      const _dl=JSON.parse(localStorage.getItem(SK_DASH)||"null");
-      const _cloudWins=!isInitial||(cloud._ts||0)>=(_dl?._ts||0);
-      console.log("[DASH APPLY] isInitial:",isInitial,"cloud._ts:",cloud._ts,"local._ts:",_dl?._ts,"_cloudWins:",_cloudWins,"cloud.dashLayout:",cloud.dashLayout,"local.layout:",_dl?.layout);
-      if(_cloudWins){if(cloud.dashLayout&&setters.setDashLayout)setters.setDashLayout(cloud.dashLayout);if(cloud.dashPriorities&&setters.setDashPriorities)setters.setDashPriorities(cloud.dashPriorities);}
-      else{if(_dl?.layout&&setters.setDashLayout)setters.setDashLayout(_dl.layout);if(_dl?.priorities&&setters.setDashPriorities)setters.setDashPriorities(_dl.priorities);}
-    }catch(e){console.error("[DASH APPLY] error:",e);if(cloud.dashLayout&&setters.setDashLayout)setters.setDashLayout(cloud.dashLayout);if(cloud.dashPriorities&&setters.setDashPriorities)setters.setDashPriorities(cloud.dashPriorities);}
+    // dashLayout / dashPriorities: cloud (Firestore or ldForUser fallback) is always
+    // authoritative. SK_DASH is only used for the initial useState value to prevent
+    // a flash of DEFAULT while the cloud loads — it must not override cloud data.
+    if(cloud.dashLayout&&setters.setDashLayout)setters.setDashLayout(cloud.dashLayout);
+    if(cloud.dashPriorities&&setters.setDashPriorities)setters.setDashPriorities(cloud.dashPriorities);
 
     // Directly regenerate ALL derived events rather than relying on useEffects.
     // This avoids race conditions where sem/showHolidays don't "change" (same value
@@ -683,7 +677,7 @@ function App(){
   const[sleepDayData,setSleepDayData]=useState(saved?.sleepDayData||{});
   // Load dashboard state from SK_DASH (always-on key, no auth gating) so
   // authenticated users don't fall back to DEFAULT_DASH_LAYOUT on every reload.
-  const _savedDash=(()=>{try{const r=localStorage.getItem(SK_DASH);const p=r?JSON.parse(r):null;console.log("[DASH INIT] SK_DASH on load:",p);return p;}catch(e){return null;}})();
+  const _savedDash=(()=>{try{const r=localStorage.getItem(SK_DASH);return r?JSON.parse(r):null;}catch(e){return null;}})();
   const[dashPriorities,setDashPriorities]=useState(_savedDash?.priorities||saved?.dashPriorities||[]);
   const DEFAULT_DASH_LAYOUT=[
     {id:"dw_welcome",type:"welcome"},
@@ -787,10 +781,10 @@ function App(){
   },[persistableEvents,tasks,courses,cats,sem,theme,showHolidays,settings,exams,assignments,officeHours,quickNotes,journalEntries,sleepSettings,sleepDayData,dashPriorities,dashLayout,user,cloudSyncReady]);
   // Persist dashboard layout to SK_DASH on every change — no cloudSyncReady gate,
   // no auth check — so it survives reload for ALL users (guests, signed-in, no-firebase).
-  useEffect(()=>{const d={layout:dashLayout,priorities:dashPriorities,_ts:Date.now()};console.log("[DASH SAVE] writing SK_DASH:",d);try{localStorage.setItem(SK_DASH,JSON.stringify(d));}catch(e){console.error("[DASH SAVE] localStorage error:",e);};},[dashLayout,dashPriorities]);
+  useEffect(()=>{try{localStorage.setItem(SK_DASH,JSON.stringify({layout:dashLayout,priorities:dashPriorities,_ts:Date.now()}));}catch(e){};},[dashLayout,dashPriorities]);
   // Always-fresh save fn for explicit saves (e.g. Done button). Not gated by
   // cloudSyncReady so the user's intentional edits are never silently dropped.
-  _dashSaveFn.current=()=>{const ts=Date.now();console.log("[DASH DONE] explicit save, dashLayout:",dashLayout);svForUser(user?.uid||(isGuest?"guest":null),{events:persistableEvents,tasks,courses,cats,sem,theme,showHolidays,settings,exams,assignments,officeHours,quickNotes,journalEntries,sleepSettings,sleepDayData,dashPriorities,dashLayout,_ts:ts});};
+  _dashSaveFn.current=()=>{const ts=Date.now();svForUser(user?.uid||(isGuest?"guest":null),{events:persistableEvents,tasks,courses,cats,sem,theme,showHolidays,settings,exams,assignments,officeHours,quickNotes,journalEntries,sleepSettings,sleepDayData,dashPriorities,dashLayout,_ts:ts});};
 
 
 
