@@ -29,6 +29,7 @@ const MN2=["January","February","March","April","May","June","July","August","Se
 const DN=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
 const DNF=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
 const SK="tiger_calendar_v3";
+const SK_DASH="tc_dash"; // dedicated key for dashboard layout — always read/written, no auth gate
 const gi=()=>"id_"+Math.random().toString(36).slice(2,10)+Date.now().toString(36);
 // Global flag: true while a horizontal swipe navigation is in progress.
 // Pinch-to-zoom checks this and ignores two-finger gestures during swipe.
@@ -325,14 +326,16 @@ function useFirestoreSync(user,_localData,setters){
     if(cloud.journalEntries&&setters.setJournalEntries)setters.setJournalEntries(cloud.journalEntries);
     if(cloud.sleepSettings&&setters.setSleepSettings)setters.setSleepSettings(cloud.sleepSettings);
     if(cloud.sleepDayData&&setters.setSleepDayData)setters.setSleepDayData(cloud.sleepDayData);
-    // For dashLayout/dashPriorities prefer local data when it has a newer _ts.
-    // svForUser writes synchronously so if the user edits widgets and reloads
-    // before the 1500ms debounced Firestore upload completes, the local copy is
-    // more recent and should win over the stale cloud snapshot.
-    const _localSnap=isInitial&&user?ldForUser(user.uid):null;
-    const _preferLocal=!!(_localSnap&&(_localSnap._ts||0)>(cloud._ts||0));
-    if(_preferLocal?_localSnap.dashPriorities!=null:cloud.dashPriorities)setters.setDashPriorities(_preferLocal?_localSnap.dashPriorities:cloud.dashPriorities);
-    if(_preferLocal?_localSnap.dashLayout!=null:cloud.dashLayout)setters.setDashLayout(_preferLocal?_localSnap.dashLayout:cloud.dashLayout);
+    // dashLayout / dashPriorities: use SK_DASH dedicated key for comparison.
+    // SK_DASH is written ungated on every change, so it is always up-to-date.
+    // On initial load prefer whichever source is newer; on live updates (onSnapshot)
+    // always trust the incoming cloud data since echo-protection already filtered it.
+    try{
+      const _dl=JSON.parse(localStorage.getItem(SK_DASH)||"null");
+      const _cloudWins=!isInitial||(cloud._ts||0)>=(_dl?._ts||0);
+      if(_cloudWins){if(cloud.dashLayout&&setters.setDashLayout)setters.setDashLayout(cloud.dashLayout);if(cloud.dashPriorities&&setters.setDashPriorities)setters.setDashPriorities(cloud.dashPriorities);}
+      else{if(_dl?.layout&&setters.setDashLayout)setters.setDashLayout(_dl.layout);if(_dl?.priorities&&setters.setDashPriorities)setters.setDashPriorities(_dl.priorities);}
+    }catch(e){if(cloud.dashLayout&&setters.setDashLayout)setters.setDashLayout(cloud.dashLayout);if(cloud.dashPriorities&&setters.setDashPriorities)setters.setDashPriorities(cloud.dashPriorities);}
 
     // Directly regenerate ALL derived events rather than relying on useEffects.
     // This avoids race conditions where sem/showHolidays don't "change" (same value
@@ -675,14 +678,17 @@ function App(){
   const[journalEntries,setJournalEntries]=useState(saved?.journalEntries||[]);
   const[sleepSettings,setSleepSettings]=useState(saved?.sleepSettings||{enabled:false,bedtime:"22:00",wakeTime:"07:00"});
   const[sleepDayData,setSleepDayData]=useState(saved?.sleepDayData||{});
-  const[dashPriorities,setDashPriorities]=useState(saved?.dashPriorities||[]);
+  // Load dashboard state from SK_DASH (always-on key, no auth gating) so
+  // authenticated users don't fall back to DEFAULT_DASH_LAYOUT on every reload.
+  const _savedDash=(()=>{try{const r=localStorage.getItem(SK_DASH);return r?JSON.parse(r):null;}catch(e){return null;}})();
+  const[dashPriorities,setDashPriorities]=useState(_savedDash?.priorities||saved?.dashPriorities||[]);
   const DEFAULT_DASH_LAYOUT=[
     {id:"dw_welcome",type:"welcome"},
     {id:"dw_schedule",type:"schedule"},
     {id:"dw_tasks",type:"tasks"},
     {id:"dw_priorities",type:"priorities"},
   ];
-  const[dashLayout,setDashLayout]=useState(saved?.dashLayout||DEFAULT_DASH_LAYOUT);
+  const[dashLayout,setDashLayout]=useState(_savedDash?.layout||saved?.dashLayout||DEFAULT_DASH_LAYOUT);
   // remember last calendar view so the calendar icon button returns to it
   const lastCalViewRef=useRef(view==="tasks-dashboard"||view==="notes-dashboard"||view==="focus-dashboard"?"week":view);
 
@@ -776,6 +782,9 @@ function App(){
     svForUser(user?.uid||(isGuest?"guest":null),data);
     if(user)upload(data);
   },[persistableEvents,tasks,courses,cats,sem,theme,showHolidays,settings,exams,assignments,officeHours,quickNotes,journalEntries,sleepSettings,sleepDayData,dashPriorities,dashLayout,user,cloudSyncReady]);
+  // Persist dashboard layout to SK_DASH on every change — no cloudSyncReady gate,
+  // no auth check — so it survives reload for ALL users (guests, signed-in, no-firebase).
+  useEffect(()=>{try{localStorage.setItem(SK_DASH,JSON.stringify({layout:dashLayout,priorities:dashPriorities,_ts:Date.now()}));}catch(e){};},[dashLayout,dashPriorities]);
   // Always-fresh save fn for explicit saves (e.g. Done button). Not gated by
   // cloudSyncReady so the user's intentional edits are never silently dropped.
   _dashSaveFn.current=()=>{const ts=Date.now();svForUser(user?.uid||(isGuest?"guest":null),{events:persistableEvents,tasks,courses,cats,sem,theme,showHolidays,settings,exams,assignments,officeHours,quickNotes,journalEntries,sleepSettings,sleepDayData,dashPriorities,dashLayout,_ts:ts});};
