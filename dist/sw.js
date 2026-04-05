@@ -32,6 +32,12 @@ self.addEventListener('activate', e => {
 });
 
 self.addEventListener('fetch', e => {
+  const url = e.request.url;
+  // Skip non-HTTP(S) schemes (chrome-extension://, data:, blob:, etc.) — Cache API rejects them
+  if (!url.startsWith('http://') && !url.startsWith('https://')) return;
+  // Skip non-GET requests — Cache API only supports caching GET
+  if (e.request.method !== 'GET') return;
+
   // Network-first for HTML navigation — always serve fresh HTML
   if (e.request.mode === 'navigate') {
     e.respondWith(fetch(e.request).catch(() => caches.match('/index.html')));

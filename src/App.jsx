@@ -29,6 +29,8 @@ const MN2=["January","February","March","April","May","June","July","August","Se
 const DN=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
 const DNF=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
 const SK="tiger_calendar_v3";
+const SK_DASH="tc_dash"; // dedicated key for dashboard layout — always read/written, no auth gate
+const sameJSON=(a,b)=>{try{return JSON.stringify(a)===JSON.stringify(b);}catch(e){return false;}};
 const gi=()=>"id_"+Math.random().toString(36).slice(2,10)+Date.now().toString(36);
 // Global flag: true while a horizontal swipe navigation is in progress.
 // Pinch-to-zoom checks this and ignores two-finger gestures during swipe.
@@ -204,7 +206,25 @@ function ldForUser(uid){
   return null;}
 function svForUser(uid,d){
   const key=uid?`${SK}:uid_${uid}`:`${SK}:guest`;
-  try{localStorage.setItem(key,JSON.stringify({...d,_uid:uid}));}catch(e){}}
+  try{localStorage.setItem(key,JSON.stringify({...d,_uid:uid}));}
+  catch(e){console.error("[LS svForUser failed]",{key,error:e?.message||e});}}
+function ldDashForUser(uid){
+  const key=uid?`${SK_DASH}:uid_${uid}`:`${SK_DASH}:guest`;
+  try{const r=localStorage.getItem(key);if(r)return JSON.parse(r);}
+  catch(e){console.error("[LS ldDashForUser failed]",{key,error:e?.message||e});}
+  // fallback for legacy global key
+  try{const r=localStorage.getItem(SK_DASH);if(r)return JSON.parse(r);}
+  catch(e){console.error("[LS ldDashForUser legacy failed]",{key:SK_DASH,error:e?.message||e});}
+  return null;
+}
+function svDashForUser(uid,d){
+  const key=uid?`${SK_DASH}:uid_${uid}`:`${SK_DASH}:guest`;
+  try{localStorage.setItem(key,JSON.stringify(d));}
+  catch(e){console.error("[LS svDashForUser failed]",{key,error:e?.message||e,size:JSON.stringify(d).length});}
+  // keep global key updated for backward compatibility
+  try{localStorage.setItem(SK_DASH,JSON.stringify(d));}
+  catch(e){console.error("[LS svDashForUser legacy failed]",{key:SK_DASH,error:e?.message||e,size:JSON.stringify(d).length});}
+}
 function clearUserStorage(uid){
   if(!uid)return;
   try{localStorage.removeItem(`${SK}:uid_${uid}`);}catch(e){}}
@@ -238,7 +258,7 @@ function useFirebaseAuth(){
   useEffect(()=>{if(!FB_AUTH){setLoading(false);return;}
     const unsub=FB_AUTH.onAuthStateChanged(u=>{
       setUser(u);setLoading(false);
-      if(u)setIsGuest(false); // signed-in user overrides guest mode
+      if(u){setIsGuest(false);try{localStorage.setItem("tc_lastuid",u.uid);}catch(e){}} // cache uid for synchronous SK_DASH lookup on next load
     });
     return unsub;
   },[]);
@@ -325,6 +345,27 @@ function useFirestoreSync(user,_localData,setters){
     if(cloud.journalEntries&&setters.setJournalEntries)setters.setJournalEntries(cloud.journalEntries);
     if(cloud.sleepSettings&&setters.setSleepSettings)setters.setSleepSettings(cloud.sleepSettings);
     if(cloud.sleepDayData&&setters.setSleepDayData)setters.setSleepDayData(cloud.sleepDayData);
+    // dashLayout / dashPriorities: use SK_DASH (localStorage) as the primary source
+    // when it was written by gated code (_v:2 flag). This is necessary because
+    // Firestore WebChannel CORS errors on localhost mean .get() may return only
+    // server-confirmed data, and dashLayout may never reach the server.
+    // SK_DASH is written to localStorage (reliable, no network) after cloudSyncReady.
+    // Fall back to cloud if SK_DASH is absent or was written by old ungated code.
+    {const _skd=ldDashForUser(user?.uid);
+    // Dashboard customization is device-personal and should be resilient to
+    // stale/failed cloud writes. If we have a post-migration local snapshot,
+    // prefer it on initial hydration instead of comparing timestamps with the
+    // whole cloud document (whose _ts can advance for unrelated fields).
+    const _trusted=!!(_skd&&Array.isArray(_skd.layout));
+    console.log("[DASH applyCloud]",{isInitial,cloudDashLayout:cloud.dashLayout,cloudTs:cloud._ts,skdLayout:_skd?.layout,skdTs:_skd?._ts,skdV:_skd?._v,trusted:_trusted});
+    if(_trusted){
+      if(_skd.layout&&setters.setDashLayout)setters.setDashLayout(prev=>sameJSON(prev,_skd.layout)?prev:_skd.layout);
+      if(_skd.priorities&&setters.setDashPriorities)setters.setDashPriorities(prev=>sameJSON(prev,_skd.priorities)?prev:_skd.priorities);
+    }else{
+      // Fallback only when there is no trusted local dashboard snapshot.
+      if(cloud.dashLayout&&setters.setDashLayout)setters.setDashLayout(prev=>sameJSON(prev,cloud.dashLayout)?prev:cloud.dashLayout);
+      if(cloud.dashPriorities&&setters.setDashPriorities)setters.setDashPriorities(prev=>sameJSON(prev,cloud.dashPriorities)?prev:cloud.dashPriorities);
+    }}
 
     // Directly regenerate ALL derived events rather than relying on useEffects.
     // This avoids race conditions where sem/showHolidays don't "change" (same value
@@ -417,7 +458,9 @@ function useFirestoreSync(user,_localData,setters){
       // cause the save useEffect to immediately overwrite good localStorage data with
       // an empty snapshot.
       const local=ldForUser(user.uid);
-      if(local&&(local.events?.length||local.tasks?.length||local.courses?.length)){
+      if(local){
+        // Always apply local data on Firestore error — even if events/tasks/courses
+        // are empty, we still need dashLayout/dashPriorities from local storage.
         applyCloud(local,true);
       } else {
         cloudReadyRef.current=true;setCloudSyncReady(true);
@@ -460,7 +503,13 @@ function useFirestoreSync(user,_localData,setters){
     uploadToFirestore(user.uid,backup);
   },[user]);
 
-  return{upload,restoreFromBackup,cloudSyncReady};
+  // Guard against the auth-transition race: when `user` flips from null -> uid,
+  // React can render once with stale `cloudSyncReady===true` from the previous
+  // signed-out state before the user-scoped sync effect sets it false. In that
+  // render, save effects must remain blocked to avoid writing default dashboard
+  // layout/state over real cloud data.
+  const effectiveCloudSyncReady=!user||(cloudSyncReady&&cloudReadyRef.current);
+  return{upload,restoreFromBackup,cloudSyncReady:effectiveCloudSyncReady};
 }
 
 function uploadToFirestore(uid,data){
@@ -470,6 +519,11 @@ function uploadToFirestore(uid,data){
   // silent write failures for ASAP tasks and tasks without a time.
   const clean=JSON.parse(JSON.stringify({...data,_ts:data._ts||Date.now()}));
   FB_DB.collection("calendars").doc(uid).set(clean).catch(e=>console.warn("Firestore write error:",e));
+}
+function uploadDashToFirestore(uid,layout,priorities,ts){
+  if(!FB_DB||!uid)return;
+  const clean=JSON.parse(JSON.stringify({dashLayout:layout,dashPriorities:priorities,_ts:ts||Date.now()}));
+  FB_DB.collection("calendars").doc(uid).set(clean,{merge:true}).catch(e=>console.warn("Firestore dash write error:",e));
 }
 
 // ═══ LANDING PAGE ═══
@@ -667,14 +721,24 @@ function App(){
   const[journalEntries,setJournalEntries]=useState(saved?.journalEntries||[]);
   const[sleepSettings,setSleepSettings]=useState(saved?.sleepSettings||{enabled:false,bedtime:"22:00",wakeTime:"07:00"});
   const[sleepDayData,setSleepDayData]=useState(saved?.sleepDayData||{});
-  const[dashPriorities,setDashPriorities]=useState(saved?.dashPriorities||[]);
+  // Load dashboard state from SK_DASH (always-on key, no auth gating) so
+  // authenticated users don't fall back to DEFAULT_DASH_LAYOUT on every reload.
+  // For signed-in users we use the UID cached in localStorage by the auth listener
+  // so the load is synchronous (same as guests) without waiting for Firebase to resolve.
+  const _savedDash=(()=>{
+    if(isGuest)return ldDashForUser("guest");
+    try{const uid=localStorage.getItem("tc_lastuid");if(uid)return ldDashForUser(uid);}catch(e){}
+    return null;
+  })();
+  const[dashPriorities,setDashPriorities]=useState(_savedDash?.priorities||saved?.dashPriorities||[]);
   const DEFAULT_DASH_LAYOUT=[
     {id:"dw_welcome",type:"welcome"},
     {id:"dw_schedule",type:"schedule"},
     {id:"dw_tasks",type:"tasks"},
     {id:"dw_priorities",type:"priorities"},
   ];
-  const[dashLayout,setDashLayout]=useState(saved?.dashLayout||DEFAULT_DASH_LAYOUT);
+  const[dashLayout,setDashLayout]=useState(_savedDash?.layout||saved?.dashLayout||DEFAULT_DASH_LAYOUT);
+  const dashUidHydratedRef=useRef(null);
   // remember last calendar view so the calendar icon button returns to it
   const lastCalViewRef=useRef(view==="tasks-dashboard"||view==="notes-dashboard"||view==="focus-dashboard"?"week":view);
 
@@ -757,16 +821,71 @@ function App(){
   const{upload,restoreFromBackup,cloudSyncReady}=useFirestoreSync(user,{events:persistableEvents,tasks,courses,cats,sem,theme,showHolidays,settings,exams,assignments,officeHours,quickNotes,journalEntries,sleepSettings,sleepDayData,dashPriorities,dashLayout},syncSetters);
 
   useEffect(()=>{setAc(p=>{const n=new Set(p);Object.keys(cats).forEach(k=>n.add(k));n.add("_holidays");n.add("_officehours");return n;});},[cats]);
+  const _dashSaveFn=useRef(null);
   useEffect(()=>{
     // Gate svForUser behind cloudSyncReady: prevents writing the empty initial
     // state to localStorage before the cloud snapshot is applied, which would
     // make ldForUser return an empty record and corrupt local-first detection.
     if(!cloudSyncReady) return;
+    const uid=user?.uid||(isGuest?"guest":null);
+    if(uid&&dashUidHydratedRef.current!==uid)return;
     const ts=Date.now();
     const data={events:persistableEvents,tasks,courses,cats,sem,theme,showHolidays,settings,exams,assignments,officeHours,quickNotes,journalEntries,sleepSettings,sleepDayData,dashPriorities,dashLayout,_ts:ts};
-    svForUser(user?.uid||(isGuest?"guest":null),data);
+    svForUser(uid,data);
     if(user)upload(data);
   },[persistableEvents,tasks,courses,cats,sem,theme,showHolidays,settings,exams,assignments,officeHours,quickNotes,journalEntries,sleepSettings,sleepDayData,dashPriorities,dashLayout,user,cloudSyncReady]);
+  // Extra guardrail: hydrate dashboard widgets from per-user local cache as soon
+  // as auth resolves. This keeps widgets consistent with the rest of local user
+  // data even when Firestore listeners fail (CORS/WebChannel issues).
+  useEffect(()=>{
+    const uid=user?.uid||(isGuest?"guest":null);
+    if(!uid||dashUidHydratedRef.current===uid)return;
+    dashUidHydratedRef.current=uid;
+    const cached=ldForUser(uid);
+    const cachedDash=ldDashForUser(uid);
+    if(cached?.dashLayout&&Array.isArray(cached.dashLayout))setDashLayout(cached.dashLayout);
+    if(cached?.dashPriorities&&Array.isArray(cached.dashPriorities))setDashPriorities(cached.dashPriorities);
+    if(cachedDash?.layout&&Array.isArray(cachedDash.layout))setDashLayout(cachedDash.layout);
+    if(cachedDash?.priorities&&Array.isArray(cachedDash.priorities))setDashPriorities(cachedDash.priorities);
+  },[user?.uid,isGuest]);
+  // Persist dashboard layout to SK_DASH for all post-mount changes.
+  // Skip the very first render so the initial default state never stamps a
+  // fresh timestamp before hydration, but still save user edits immediately
+  // even if cloud sync is delayed/unavailable.
+  const dashLocalWriteReadyRef=useRef(false);
+  useEffect(()=>{
+    if(!dashLocalWriteReadyRef.current){dashLocalWriteReadyRef.current=true;return;}
+    const _skd={layout:dashLayout,priorities:dashPriorities,_ts:Date.now(),_v:2};
+    console.log("[DASH SK_DASH write]",{widgetCount:dashLayout.length,_ts:_skd._ts});
+    svDashForUser(user?.uid||(isGuest?"guest":null),_skd);
+  },[dashLayout,dashPriorities]);
+  // Mirror dashboard state into the per-user storage slot on each edit so
+  // reloads can recover even if global SK_DASH is unavailable in the runtime.
+  const dashUserWriteReadyRef=useRef(false);
+  useEffect(()=>{
+    const uid=user?.uid||(isGuest?"guest":null);
+    if(!uid)return;
+    if(!dashUserWriteReadyRef.current){dashUserWriteReadyRef.current=true;return;}
+    const prev=ldForUser(uid)||{};
+    svForUser(uid,{...prev,dashLayout,dashPriorities,_ts:Date.now()});
+  },[dashLayout,dashPriorities,user?.uid,isGuest]);
+  // Always-fresh save fn for explicit saves (e.g. Done button). Not gated by
+  // cloudSyncReady so the user's intentional edits are never silently dropped.
+  _dashSaveFn.current=(layoutOverride,prioritiesOverride)=>{
+    const ts=Date.now();
+    const nextLayout=layoutOverride??dashLayout;
+    const nextPriorities=prioritiesOverride??dashPriorities;
+    svDashForUser(user?.uid||(isGuest?"guest":null),{layout:nextLayout,priorities:nextPriorities,_ts:ts,_v:2});
+    const uid=user?.uid||(isGuest?"guest":null);
+    if(layoutOverride!==undefined||prioritiesOverride!==undefined){
+      const prev=ldForUser(uid)||{};
+      svForUser(uid,{...prev,dashLayout:nextLayout,dashPriorities:nextPriorities,_ts:ts});
+      return;
+    }
+    const _d={events:persistableEvents,tasks,courses,cats,sem,theme,showHolidays,settings,exams,assignments,officeHours,quickNotes,journalEntries,sleepSettings,sleepDayData,dashPriorities:nextPriorities,dashLayout:nextLayout,_ts:ts};
+    svForUser(uid,_d);
+    if(user&&cloudSyncReady){upload(_d);uploadDashToFirestore(user.uid,nextLayout,nextPriorities,ts);}
+  };
 
 
 
@@ -814,7 +933,11 @@ function App(){
 
   useEffect(()=>{const h=(e)=>{
     if((e.metaKey||e.ctrlKey)&&e.key==="z"&&!e.shiftKey){if(e.target.isContentEditable)return;e.preventDefault();undo();return;}
-    if(modal||csOpen||settingsOpen||eaOpen)return;if(["INPUT","TEXTAREA","SELECT"].includes(e.target.tagName))return;if(e.target.isContentEditable)return;
+    if(modal||csOpen||settingsOpen||eaOpen)return;
+    const ae=document.activeElement;
+    if(ae&&(["INPUT","TEXTAREA","SELECT"].includes(ae.tagName)||ae.isContentEditable))return;
+    if(["INPUT","TEXTAREA","SELECT"].includes(e.target.tagName))return;
+    if(e.target.isContentEditable)return;
     switch(e.key){case"t":case"T":goT();break;
     case"d":case"D":lastCalViewRef.current="day";setView("day");setViewOpen(false);break;
     case"w":case"W":lastCalViewRef.current="week";setView("week");setViewOpen(false);break;
@@ -1193,7 +1316,7 @@ function App(){
           {view==="tasks-dashboard"&&<TasksDashboard T={T} MO={MO} SE={SE} tasks={tasks} cats={cats} courses={courses} aT={aT} uT={uT} dT={dT} tT={tT} pushUndo={pushUndo}/>}
           {view==="notes-dashboard"&&<NotesDashboard T={T} MO={MO} SE={SE} quickNotes={quickNotes} setQuickNotes={setQuickNotes} journalEntries={journalEntries} setJournalEntries={setJournalEntries}/>}
           {view==="focus-dashboard"&&<FocusDashboard T={T} MO={MO} SE={SE} tasks={tasks} events={allEvents} courses={courses} cats={cats} exams={exams} assignments={assignments} sem={sem} setChatOpen={setChatOpen} sleepSettings={sleepSettings} setSleepSettings={setSleepSettings} sleepDayData={sleepDayData} setSleepDayData={setSleepDayData} setModal={setModal}/>}
-          {view==="home"&&<DashboardView T={T} MO={MO} SE={SE} user={user} allEvents={allEvents} tasks={tasks} cats={cats} courses={courses} dashPriorities={dashPriorities} setDashPriorities={setDashPriorities} sleepSettings={sleepSettings} sleepDayData={sleepDayData} sem={sem} exams={exams} assignments={assignments} dashLayout={dashLayout} setDashLayout={setDashLayout}/>}
+          {view==="home"&&<DashboardView T={T} MO={MO} SE={SE} user={user} allEvents={allEvents} tasks={tasks} cats={cats} courses={courses} dashPriorities={dashPriorities} setDashPriorities={setDashPriorities} sleepSettings={sleepSettings} sleepDayData={sleepDayData} sem={sem} exams={exams} assignments={assignments} dashLayout={dashLayout} setDashLayout={setDashLayout} onSave={(layout,priorities)=>_dashSaveFn.current?.(layout,priorities)}/>}
         </>}
       </div>
     </div>
@@ -1458,6 +1581,8 @@ function TGSwipe({T,panels,events,tasks,cats,ac,setModal,modal,MO,SE,drag,setDra
   // Register non-passive touchmove/end on each panel column strip
   const attachTouch=useCallback((el)=>{
     if(!el)return;
+    if(el.dataset.tcTouchAttached==="1")return;
+    el.dataset.tcTouchAttached="1";
     const onTM=(e)=>{
       // If a pinch is active, ignore all single-finger drag logic
       if(pinchRef.current)return;
@@ -1494,8 +1619,9 @@ function TGSwipe({T,panels,events,tasks,cats,ac,setModal,modal,MO,SE,drag,setDra
         setDrag(null);setModal({type:"_tapPreview",date:lp.ds,sH:lp.sH,sM:lp.sM,eH:lp.sH,eM:lp.sM+60});
       } else setDrag(null);
     };
-    el.addEventListener("touchmove",onTM,{passive:false});el.addEventListener("touchend",onTE);el.addEventListener("touchcancel",onTE);
-    return()=>{el.removeEventListener("touchmove",onTM);el.removeEventListener("touchend",onTE);el.removeEventListener("touchcancel",onTE);};
+    el.addEventListener("touchmove",onTM,{passive:false});
+    el.addEventListener("touchend",onTE);
+    el.addEventListener("touchcancel",onTE);
   },[clientYToHour,cancelLP,setDrag,setModal]);
 
   const layoutEvents=(evs)=>{
@@ -1650,8 +1776,7 @@ function TGSwipe({T,panels,events,tasks,cats,ac,setModal,modal,MO,SE,drag,setDra
       <div style={{flex:1,overflow:"hidden",position:"relative",height:hh*24}}>
         <div style={{...slideStyle,position:"relative",height:hh*24}}>
           {panels.map(({key,dates})=>{
-            const colRef=(el)=>attachTouch(el);
-            return <div key={key} ref={colRef} style={{width:"33.333%",flexShrink:0,display:"flex",height:hh*24}}>
+            return <div key={key} ref={attachTouch} style={{width:"33.333%",flexShrink:0,display:"flex",height:hh*24}}>
               {dates.map(d=>{const ds=$d(d),it=$td(d),laid=layoutEvents(events.filter(e=>e.date===ds&&!e._allDay&&(ac.has(e.category)||e._taskDueId||e._sleepId)));
                 return <div key={ds} onMouseDown={e=>mD(e,ds)} onTouchStart={e=>tSD(e,ds)}
                   style={{position:"relative",flex:1,borderLeft:`1px solid ${T.bd}`,background:it?T.tb:"transparent",cursor:"crosshair",touchAction:"pan-y"}}>
@@ -7071,7 +7196,7 @@ function DashboardWidgetEditor({T,MO,widget,onClose,onSave}){
 }
 
 // ═══ DASHBOARD VIEW ═══
-function DashboardView({T,MO,SE,user,allEvents,tasks,cats,courses,dashPriorities,setDashPriorities,sleepSettings,sleepDayData,sem,exams,assignments,dashLayout,setDashLayout}){
+function DashboardView({T,MO,SE,user,allEvents,tasks,cats,courses,dashPriorities,setDashPriorities,sleepSettings,sleepDayData,sem,exams,assignments,dashLayout,setDashLayout,onSave}){
   const today=$d(new Date());
   const todayLabel=new Date().toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric",year:"numeric"});
   const firstName=user?.displayName?.split(" ")[0]||user?.email?.split("@")[0]||"there";
@@ -7127,13 +7252,13 @@ function DashboardView({T,MO,SE,user,allEvents,tasks,cats,courses,dashPriorities
 
   // ── Priorities helpers ──
   const[newP,setNewP]=useState("");
-  const addPriority=()=>{if(!newP.trim())return;setDashPriorities(p=>[...p,{id:gi(),text:newP.trim(),done:false}]);setNewP("");};
-  const togglePriority=(id)=>setDashPriorities(p=>p.map(x=>x.id===id?{...x,done:!x.done}:x));
-  const deletePriority=(id)=>setDashPriorities(p=>p.filter(x=>x.id!==id));
+  const addPriority=()=>{if(!newP.trim())return;setDashPriorities(p=>{const n=[...p,{id:gi(),text:newP.trim(),done:false}];onSave?.(dashLayout,n);return n;});setNewP("");};
+  const togglePriority=(id)=>setDashPriorities(p=>{const n=p.map(x=>x.id===id?{...x,done:!x.done}:x);onSave?.(dashLayout,n);return n;});
+  const deletePriority=(id)=>setDashPriorities(p=>{const n=p.filter(x=>x.id!==id);onSave?.(dashLayout,n);return n;});
   const movePriority=(id,dir)=>setDashPriorities(p=>{
     const i=p.findIndex(x=>x.id===id);if(i<0)return p;
     const ni=i+dir;if(ni<0||ni>=p.length)return p;
-    const n=[...p];[n[i],n[ni]]=[n[ni],n[i]];return n;
+    const n=[...p];[n[i],n[ni]]=[n[ni],n[i]];onSave?.(dashLayout,n);return n;
   });
 
   // ── Layout helpers ──
@@ -7143,12 +7268,20 @@ function DashboardView({T,MO,SE,user,allEvents,tasks,cats,courses,dashPriorities
   const moveWidget=(id,dir)=>setDashLayout(p=>{
     const i=p.findIndex(w=>w.id===id);if(i<0)return p;
     const ni=i+dir;if(ni<0||ni>=p.length)return p;
-    const n=[...p];[n[i],n[ni]]=[n[ni],n[i]];return n;
+    const n=[...p];[n[i],n[ni]]=[n[ni],n[i]];onSave?.(n,dashPriorities);return n;
   });
-  const removeWidget=(id)=>setDashLayout(p=>p.filter(w=>w.id!==id));
-  const addWidget=(type)=>setDashLayout(p=>[...p,{id:gi(),type,config:{},width:"half"}]);
-  const updateWidgetConfig=(id,cfg)=>setDashLayout(p=>p.map(w=>w.id===id?{...w,config:{...w.config,...cfg}}:w));
-  const toggleWidth=(id)=>setDashLayout(p=>p.map(w=>w.id===id?{...w,width:w.width==="full"?"half":"full"}:w));
+  const removeWidget=(id)=>setDashLayout(p=>{const n=p.filter(w=>w.id!==id);onSave?.(n,dashPriorities);return n;});
+  const addWidget=(type)=>setDashLayout(p=>{const n=[...p,{id:gi(),type,config:{},width:"half"}];onSave?.(n,dashPriorities);return n;});
+  const updateWidgetConfig=(id,cfg)=>setDashLayout(p=>{
+    const n=p.map(w=>w.id===id?{...w,config:{...w.config,...cfg}}:w);
+    onSave?.(n,dashPriorities);
+    return n;
+  });
+  const toggleWidth=(id)=>setDashLayout(p=>{
+    const n=p.map(w=>w.id===id?{...w,width:w.width==="full"?"half":"full"}:w);
+    onSave?.(n,dashPriorities);
+    return n;
+  });
 
   // ── Widget content renderers ──
   const WTitle=({icon,label,sub})=>(
@@ -7251,7 +7384,7 @@ function DashboardView({T,MO,SE,user,allEvents,tasks,cats,courses,dashPriorities
     </div>}
     <div style={{display:"flex",gap:8}}>
       <input value={newP} onChange={e=>setNewP(e.target.value)} placeholder="Add a priority…"
-        onKeyDown={e=>e.key==="Enter"&&addPriority()}
+        onKeyDown={e=>{e.stopPropagation();if(e.key==="Enter")addPriority();}}
         style={{flex:1,padding:"9px 12px",borderRadius:9,border:`1px solid ${T.bd}`,
           background:T.ib,color:T.tx,fontFamily:"'DM Sans',sans-serif",fontSize:"0.87rem",outline:"none"}}/>
       <button onClick={addPriority} style={{padding:"9px 16px",borderRadius:9,border:"none",
@@ -7459,7 +7592,7 @@ function DashboardView({T,MO,SE,user,allEvents,tasks,cats,courses,dashPriorities
             </p>}
         </div>
         {/* Customize button */}
-        <button onClick={()=>{setEditMode(p=>!p);setShowPicker(false);}}
+        <button onClick={()=>{if(editMode)onSave?.();setEditMode(p=>!p);setShowPicker(false);}}
           style={{padding:"9px 18px",borderRadius:10,
             border:`1px solid ${editMode?T.ac:T.bd}`,
             background:editMode?`${T.ac}18`:"transparent",
@@ -7478,7 +7611,7 @@ function DashboardView({T,MO,SE,user,allEvents,tasks,cats,courses,dashPriorities
       <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:14,alignItems:"start"}}>
         {dashLayout.map(w=>(
           <div key={w.id} style={{gridColumn:w.width==="full"?"1 / -1":"auto"}}>
-            <WCard w={w}>{renderWidget(w)}</WCard>
+            {WCard({w,children:renderWidget(w)})}
           </div>
         ))}
       </div>
