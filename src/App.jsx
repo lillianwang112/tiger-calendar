@@ -93,6 +93,22 @@ function $td(d){return $s(d,new Date());}
 
 function isCd(ds,sem){const c=PCAL[sem];if(!c)return false;if(ds<c.cs||ds>c.ce)return false;
   for(const[s,e]of c.brk)if(ds>=s&&ds<=e)return false;return true;}
+function getSemesterWeeks(sem){
+  const cal=PCAL[sem];
+  if(!cal)return{totalWeeks:0,elapsedWeeks:0,weeksLeft:0};
+  let totalDays=0,elapsedDays=0;
+  const today=$d(new Date());
+  for(let d=$p(cal.cs);d<=$p(cal.ce);d=$a(d,1)){
+    const ds=$d(d);
+    if(!isCd(ds,sem))continue;
+    totalDays++;
+    if(ds<=today)elapsedDays++;
+  }
+  const totalWeeks=Math.ceil(totalDays/7);
+  const elapsedWeeks=Math.min(totalWeeks,Math.ceil(elapsedDays/7));
+  const weeksLeft=Math.max(0,totalWeeks-elapsedWeeks);
+  return{totalWeeks,elapsedWeeks,weeksLeft};
+}
 
 // Generate recurring events from recurrence rule
 function genRecurring(ev){
@@ -4163,8 +4179,10 @@ function SleepModal({T,MO,SE,modal,setModal,sleepSettings,setSleepSettings,sleep
 function SleepSection({T,MO,SE,sleepSettings,setSleepSettings,sleepDayData,setSleepDayData,setModal}){
   const todayStr=$d(new Date());
   const todayData=sleepDayData[todayStr]||{};
-  const[logH,setLogH]=useState(todayData.actualHours!=null?String(todayData.actualHours):"");
-  const[logM,setLogM]=useState(todayData.actualMins!=null?String(todayData.actualMins):"");
+  const[logDate,setLogDate]=useState(todayStr);
+  const selectedLogData=sleepDayData[logDate]||{};
+  const[logH,setLogH]=useState(selectedLogData.actualHours!=null?String(selectedLogData.actualHours):"");
+  const[logM,setLogM]=useState(selectedLogData.actualMins!=null?String(selectedLogData.actualMins):"");
 
   const calcMins=(wt,bt)=>{if(!wt||!bt)return 0;const[wH,wM]=wt.split(":").map(Number);const[bH,bM]=bt.split(":").map(Number);let w=wH*60+wM,b=bH*60+bM;if(w<=b)w+=1440;return w-b;};
   const fmtMins=(m)=>`${Math.floor(m/60)}h ${m%60}m`;
@@ -4185,68 +4203,93 @@ function SleepSection({T,MO,SE,sleepSettings,setSleepSettings,sleepDayData,setSl
   const validActuals=dayStats.filter(d=>d.actual!=null&&!d.skip);
   const avgActual=validActuals.length?Math.round(validActuals.reduce((s,d)=>s+d.actual,0)/validActuals.length):null;
   const avgIntended=Math.round(dayStats.filter(d=>!d.skip).reduce((s,d)=>s+d.intended,0)/Math.max(1,dayStats.filter(d=>!d.skip).length));
+  const selectedLogLabel=$p(logDate).toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"});
+
+  useEffect(()=>{
+    const next=sleepDayData[logDate]||{};
+    setLogH(next.actualHours!=null?String(next.actualHours):"");
+    setLogM(next.actualMins!=null?String(next.actualMins):"");
+  },[logDate,sleepDayData]);
 
   const saveLog=()=>{
     const h=Math.max(0,+logH||0),m=Math.max(0,Math.min(59,+logM||0));
-    setSleepDayData(p=>({...p,[todayStr]:{...p[todayStr],actualHours:h,actualMins:m}}));
+    setSleepDayData(p=>({...p,[logDate]:{...p[logDate],actualHours:h,actualMins:m}}));
   };
 
-  return <div style={{background:T.b3,border:`1px solid ${T.bd}`,borderRadius:10,padding:"16px 20px",marginBottom:20}}>
+  return <div style={{background:T.b3,border:`1px solid ${T.bd}`,borderRadius:12,padding:"20px 24px",marginBottom:20}}>
     <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:12,flexWrap:"wrap",gap:8}}>
-      <div style={{fontFamily:MO,fontSize:"0.5rem",color:T.t3,textTransform:"uppercase",letterSpacing:"0.08em"}}>Sleep Tracker</div>
-      <button onClick={()=>setModal&&setModal({type:"_sleep",sleepDate:null})} style={{padding:"4px 10px",borderRadius:5,border:`1px solid ${T.bd}`,background:"transparent",color:T.t3,cursor:"pointer",fontFamily:MO,fontSize:"0.46rem",letterSpacing:"0.05em"}}>⚙ Settings</button>
+      <div>
+        <div style={{fontFamily:MO,fontSize:"0.56rem",color:T.t3,textTransform:"uppercase",letterSpacing:"0.12em"}}>Sleep Tracker</div>
+        <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:"0.96rem",color:T.t2,marginTop:7,lineHeight:1.5}}>Your last seven nights, planned vs actual, and tonight's logged sleep.</div>
+      </div>
+      <button onClick={()=>setModal&&setModal({type:"_sleep",sleepDate:null})} style={{padding:"6px 12px",borderRadius:7,border:`1px solid ${T.bd}`,background:"transparent",color:T.t3,cursor:"pointer",fontFamily:MO,fontSize:"0.52rem",letterSpacing:"0.07em"}}>⚙ Settings</button>
       {sleepSettings.enabled&&<div style={{display:"flex",gap:18,flexWrap:"wrap"}}>
-        <div><div style={{fontFamily:SE,fontSize:"1.15rem",color:T.ac,lineHeight:1}}>{fmtMins(avgIntended)}</div>
-          <div style={{fontFamily:MO,fontSize:"0.43rem",color:T.t3,marginTop:1}}>avg planned/night</div></div>
-        {avgActual&&<div><div style={{fontFamily:SE,fontSize:"1.15rem",color:"#4ade80",lineHeight:1}}>{fmtMins(avgActual)}</div>
-          <div style={{fontFamily:MO,fontSize:"0.43rem",color:T.t3,marginTop:1}}>avg actual/night</div></div>}
+        <div><div style={{fontFamily:"'DM Mono',monospace",fontSize:"1.55rem",fontWeight:700,color:T.ac,lineHeight:0.95,letterSpacing:"-0.05em"}}>{fmtMins(avgIntended)}</div>
+          <div style={{fontFamily:MO,fontSize:"0.48rem",color:T.t3,marginTop:4,letterSpacing:"0.08em",textTransform:"uppercase"}}>avg planned/night</div></div>
+        {avgActual&&<div><div style={{fontFamily:"'DM Mono',monospace",fontSize:"1.55rem",fontWeight:700,color:"#4ade80",lineHeight:0.95,letterSpacing:"-0.05em"}}>{fmtMins(avgActual)}</div>
+          <div style={{fontFamily:MO,fontSize:"0.48rem",color:T.t3,marginTop:4,letterSpacing:"0.08em",textTransform:"uppercase"}}>avg actual/night</div></div>}
       </div>}
     </div>
     {sleepSettings.enabled&&<>
       {/* Bar chart */}
-      <div style={{display:"flex",gap:5,alignItems:"flex-end",height:90,marginBottom:8}}>
+      <div style={{display:"flex",gap:6,alignItems:"flex-end",height:110,marginBottom:12}}>
         {dayStats.map(({ds,intended,actual,skip})=>{
           const label=new Date(ds+"T12:00").toLocaleDateString("en-US",{weekday:"short"}).slice(0,2);
           const isToday=ds===todayStr;
-          const iH=maxMins>0?(intended/maxMins)*74:0;
-          const aH=actual!=null&&!skip&&maxMins>0?(actual/maxMins)*74:null;
+          const iH=maxMins>0?(intended/maxMins)*92:0;
+          const aH=actual!=null&&!skip&&maxMins>0?(actual/maxMins)*92:null;
           return <div key={ds} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
             <div style={{flex:1,width:"100%",display:"flex",gap:2,alignItems:"flex-end",justifyContent:"center"}}>
               <div title={`Planned: ${fmtMins(intended)}`}
-                style={{flex:1,maxWidth:13,background:`${T.ac}40`,borderRadius:"2px 2px 0 0",height:iH,minHeight:2,
+                style={{flex:1,maxWidth:16,background:`${T.ac}40`,borderRadius:"3px 3px 0 0",height:iH,minHeight:2,
                   border:isToday?`1px solid ${T.ac}80`:"none"}}/>
               {aH!=null
                 ?<div title={`Actual: ${fmtMins(actual)}`}
-                  style={{flex:1,maxWidth:13,background:"#4ade8066",border:"1px solid #4ade8088",borderRadius:"2px 2px 0 0",height:aH,minHeight:2}}/>
-                :isToday?<div style={{flex:1,maxWidth:13,background:T.b2,border:`1px dashed ${T.bd}`,borderRadius:"2px 2px 0 0",height:24}}/>
+                  style={{flex:1,maxWidth:16,background:"#4ade8066",border:"1px solid #4ade8088",borderRadius:"3px 3px 0 0",height:aH,minHeight:2}}/>
+                :isToday?<div style={{flex:1,maxWidth:16,background:T.b2,border:`1px dashed ${T.bd}`,borderRadius:"3px 3px 0 0",height:28}}/>
                 :null}
             </div>
-            <div style={{fontFamily:MO,fontSize:"0.37rem",color:isToday?T.ac:T.t3}}>{label}</div>
+            <div style={{fontFamily:MO,fontSize:"0.46rem",color:isToday?T.ac:T.t3,letterSpacing:"0.06em"}}>{label}</div>
           </div>;
         })}
       </div>
       {/* Legend */}
-      <div style={{display:"flex",gap:12,marginBottom:14}}>
+      <div style={{display:"flex",gap:14,marginBottom:18}}>
         {[["Planned",`${T.ac}40`,"none"],["Actual","#4ade8066","1px solid #4ade8088"]].map(([l,bg,bo])=>
           <div key={l} style={{display:"flex",alignItems:"center",gap:5}}>
-            <div style={{width:11,height:8,background:bg,border:bo,borderRadius:2}}/>
-            <span style={{fontFamily:MO,fontSize:"0.43rem",color:T.t3}}>{l}</span>
+            <div style={{width:14,height:10,background:bg,border:bo,borderRadius:3}}/>
+            <span style={{fontFamily:MO,fontSize:"0.5rem",color:T.t3,letterSpacing:"0.06em",textTransform:"uppercase"}}>{l}</span>
           </div>)}
       </div>
-      {/* Log today */}
-      <div style={{borderTop:`1px solid ${T.bd}`,paddingTop:12}}>
-        <div style={{fontFamily:MO,fontSize:"0.46rem",color:T.t3,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:7}}>Log actual sleep</div>
-        <div style={{display:"flex",gap:7,alignItems:"center",flexWrap:"wrap"}}>
+      {/* Log sleep */}
+      <div style={{borderTop:`1px solid ${T.bd}`,paddingTop:16}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:12,flexWrap:"wrap",marginBottom:10}}>
+          <div>
+            <div style={{fontFamily:MO,fontSize:"0.54rem",color:T.t3,textTransform:"uppercase",letterSpacing:"0.08em"}}>Log actual sleep</div>
+            <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:"0.92rem",color:T.t2,marginTop:6,lineHeight:1.5}}>Pick any date and backfill the hours you actually slept.</div>
+          </div>
+          <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+            <input type="date" value={logDate} onChange={e=>setLogDate(e.target.value||todayStr)}
+              style={{...{
+                background:T.ib,border:`1px solid ${T.bd}`,borderRadius:7,padding:"7px 10px",
+                color:T.tx,fontFamily:"'DM Sans',sans-serif",fontSize:"0.95rem",outline:"none"
+              }}}/>
+            {logDate!==todayStr&&<button onClick={()=>setLogDate(todayStr)}
+              style={{padding:"8px 12px",borderRadius:7,border:`1px solid ${T.bd}`,background:"transparent",
+                color:T.t2,cursor:"pointer",fontFamily:MO,fontSize:"0.5rem",letterSpacing:"0.06em",textTransform:"uppercase"}}>Today</button>}
+          </div>
+        </div>
+        <div style={{display:"flex",gap:9,alignItems:"center",flexWrap:"wrap"}}>
           <input type="number" value={logH} onChange={e=>setLogH(e.target.value)} min={0} max={24} placeholder="0"
-            style={{width:52,padding:"5px 8px",borderRadius:5,border:`1px solid ${T.bd}`,background:T.ib,color:T.tx,fontSize:"0.88rem",outline:"none"}}/>
-          <span style={{fontFamily:MO,fontSize:"0.5rem",color:T.t3}}>h</span>
+            style={{width:62,padding:"7px 10px",borderRadius:7,border:`1px solid ${T.bd}`,background:T.ib,color:T.tx,fontSize:"1rem",outline:"none"}}/>
+          <span style={{fontFamily:MO,fontSize:"0.6rem",color:T.t3,letterSpacing:"0.06em",textTransform:"uppercase"}}>hours</span>
           <input type="number" value={logM} onChange={e=>setLogM(e.target.value)} min={0} max={59} placeholder="0"
-            style={{width:52,padding:"5px 8px",borderRadius:5,border:`1px solid ${T.bd}`,background:T.ib,color:T.tx,fontSize:"0.88rem",outline:"none"}}/>
-          <span style={{fontFamily:MO,fontSize:"0.5rem",color:T.t3}}>min</span>
-          <button onClick={saveLog} style={{padding:"5px 14px",borderRadius:5,border:"none",
-            background:T.ac,color:T.bg,cursor:"pointer",fontFamily:MO,fontSize:"0.52rem",fontWeight:600}}>Log</button>
-          {todayData.actualHours!=null&&<span style={{fontFamily:MO,fontSize:"0.46rem",color:"#4ade80"}}>
-            ✓ {todayData.actualHours}h {todayData.actualMins||0}m saved</span>}
+            style={{width:62,padding:"7px 10px",borderRadius:7,border:`1px solid ${T.bd}`,background:T.ib,color:T.tx,fontSize:"1rem",outline:"none"}}/>
+          <span style={{fontFamily:MO,fontSize:"0.6rem",color:T.t3,letterSpacing:"0.06em",textTransform:"uppercase"}}>minutes</span>
+          <button onClick={saveLog} style={{padding:"8px 16px",borderRadius:7,border:"none",
+            background:T.ac,color:T.bg,cursor:"pointer",fontFamily:MO,fontSize:"0.58rem",fontWeight:600,letterSpacing:"0.05em",textTransform:"uppercase"}}>Log</button>
+          {selectedLogData.actualHours!=null&&<span style={{fontFamily:MO,fontSize:"0.54rem",color:"#4ade80",letterSpacing:"0.05em"}}>
+            ✓ {selectedLogLabel}: {selectedLogData.actualHours}h {selectedLogData.actualMins||0}m saved</span>}
         </div>
       </div>
     </>}
@@ -4287,7 +4330,13 @@ function DayCountdownSection({T,MO,SE,sleepSettings,sleepDayData}){
 
   const isDone=nowAdj>=dayEndMins;
   const notStarted=nowAdj<dayStartMins;
-  const urgColor=pctLeft<10?"#ef4444":pctLeft<25?"#f97316":pctLeft<50?"#eab308":T.ac;
+  const urgColor=pctLeft<10?"#ff2b2b":pctLeft<25?"#ff5a1f":pctLeft<50?"#ff8a00":"#ff6b00";
+  const wakingHeadline=notStarted?"THE CLOCK STARTS AT "+wt:isDone?"YOUR WAKING DAY IS GONE":"TIME LEFT TO GET THINGS DONE";
+  const wakingSubline=notStarted?"No productive hours have started yet. Once they do, the countdown runs.":
+    isDone?"Your planned waking window has ended. Anything unfinished moves into tomorrow.":
+    pctLeft<10?"Critical window. Stop drifting and finish something real now.":
+    pctLeft<25?"The day is almost spent. Pick one thing and close it.":
+    "The clock is running. Use the remaining hours on purpose.";
 
   // 24h calendar clock (midnight → midnight)
   const pct24=nowMins/1440*100;
@@ -4295,7 +4344,7 @@ function DayCountdownSection({T,MO,SE,sleepSettings,sleepDayData}){
   const h24=Math.floor(rem24Secs/3600);
   const m24=Math.floor((rem24Secs%3600)/60);
   const s24=rem24Secs%60;
-  const dayColor="#7c6af7";
+  const dayColor="#ff3b30";
 
   const R=38,CX=50,CY=50,circ=2*Math.PI*R;
   const mkTip=(p)=>{const a=-Math.PI/2+(p/100)*2*Math.PI;return[CX+R*Math.cos(a),CY+R*Math.sin(a)];};
@@ -4316,18 +4365,54 @@ function DayCountdownSection({T,MO,SE,sleepSettings,sleepDayData}){
       {!noArc&&pctE>0&&pctE<100&&<circle cx={tX} cy={tY} r={4} fill={color}
         style={{animation:"dayTick 1.2s ease-in-out infinite"}}/>}
       <text x={CX} y={CY-4} textAnchor="middle"
-        style={{fontFamily:"'DM Mono',monospace",fontSize:"0.58rem",fontWeight:700,fill:noArc?T.t3:color}}>
+        style={{fontFamily:"'DM Mono',monospace",fontSize:"1rem",fontWeight:700,fill:noArc?T.t3:color,letterSpacing:"-0.04em"}}>
         {noArc?"—":(100-pctE).toFixed(0)+"%"}
       </text>
       <text x={CX} y={CY+9} textAnchor="middle"
         style={{fontFamily:"'DM Mono',monospace",fontSize:"0.42rem",fill:T.t3}}>{label}</text>
     </svg>
-    <div style={{fontFamily:MO,fontSize:"0.38rem",color:T.t3,marginTop:3,textAlign:"center"}}>{sub}</div>
+    <div style={{fontFamily:MO,fontSize:"0.48rem",color:T.t3,marginTop:5,textAlign:"center",letterSpacing:"0.04em"}}>{sub}</div>
+  </div>;
+  const TimeBlocks=({h,m,s,color,small})=><div style={{display:"flex",gap:8,alignItems:"stretch",flexWrap:"wrap"}}>
+    {[
+      [String(h).padStart(2,"0"),"hours"],
+      [String(m).padStart(2,"0"),"minutes"],
+      [String(s).padStart(2,"0"),"seconds"],
+    ].map(([val,label])=>(
+      <div key={label} style={{minWidth:small?94:118,padding:small?"10px 10px":"12px 12px",borderRadius:12,
+        background:`linear-gradient(180deg, ${color}26 0%, ${color}12 100%)`,
+        border:`1px solid ${color}90`,boxShadow:`inset 0 1px 0 rgba(255,255,255,0.1), 0 0 0 1px ${color}20`,
+        textAlign:"center"}}>
+        <div style={{fontFamily:"'DM Mono',monospace",fontSize:small?"2rem":"2.9rem",lineHeight:0.88,fontWeight:700,
+          letterSpacing:"-0.08em",color, textShadow:`0 0 12px ${color}35`}}>
+          {val}
+        </div>
+        <div style={{fontFamily:MO,fontSize:small?"0.42rem":"0.46rem",lineHeight:1.1,letterSpacing:"0.16em",textTransform:"uppercase",color:T.tx,marginTop:7,fontWeight:700}}>
+          {label}
+        </div>
+      </div>
+    ))}
   </div>;
 
-  return <div style={{background:T.b3,border:`1px solid ${T.bd}`,borderRadius:10,padding:"18px 22px",marginBottom:20}}>
-    <div style={{fontFamily:MO,fontSize:"0.5rem",color:T.t3,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:14}}>
-      Day Countdown
+  return <div style={{background:`linear-gradient(180deg, ${urgColor}10 0%, ${T.b3} 34%, ${T.b2} 100%)`,
+    border:`1px solid ${urgColor}55`,borderRadius:14,padding:"22px 24px",marginBottom:20,
+    boxShadow:`inset 0 1px 0 rgba(255,255,255,0.04), 0 10px 24px rgba(0,0,0,0.08)`}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:16,flexWrap:"wrap",marginBottom:18}}>
+      <div>
+        <div style={{fontFamily:MO,fontSize:"0.54rem",color:urgColor,textTransform:"uppercase",letterSpacing:"0.12em",marginBottom:6}}>
+          Day Countdown
+        </div>
+        <div style={{fontFamily:"'DM Mono',monospace",fontSize:"1.55rem",fontWeight:700,color:urgColor,lineHeight:1.02,maxWidth:620,letterSpacing:"-0.04em"}}>
+          {wakingHeadline}
+        </div>
+        <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:"0.88rem",color:T.t2,lineHeight:1.55,marginTop:8,maxWidth:560}}>
+          {wakingSubline}
+        </div>
+      </div>
+      <div style={{padding:"8px 12px",borderRadius:999,background:`${urgColor}14`,border:`1px solid ${urgColor}35`,
+        fontFamily:MO,fontSize:"0.7rem",fontWeight:700,color:urgColor,letterSpacing:"0.12em",textTransform:"uppercase",whiteSpace:"nowrap"}}>
+        {notStarted?"Not Started":isDone?"Day Over":`${pctLeft.toFixed(0)}% left`}
+      </div>
     </div>
     <div style={{display:"flex",alignItems:"flex-start",gap:14,flexWrap:"wrap"}}>
       <ClockFace pctE={pctElapsed} color={urgColor}
@@ -4339,24 +4424,20 @@ function DayCountdownSection({T,MO,SE,sleepSettings,sleepDayData}){
         tX={tipX24} tY={tipY24} noArc={false}/>
       <div style={{flex:1,minWidth:130}}>
         <div style={{marginBottom:10}}>
-          <div style={{fontFamily:MO,fontSize:"0.4rem",color:urgColor,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:2}}>Waking day</div>
+          <div style={{fontFamily:MO,fontSize:"0.56rem",color:urgColor,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Waking day left</div>
           {notStarted
-            ?<div style={{fontFamily:MO,fontSize:"0.58rem",color:T.t2}}>starts at {wt}</div>
+            ?<div style={{fontFamily:MO,fontSize:"0.96rem",color:T.t2}}>starts at {wt}</div>
             :isDone
-            ?<div style={{fontFamily:MO,fontSize:"0.58rem",color:T.t3}}>complete</div>
-            :<div style={{fontFamily:"'DM Mono',monospace",fontSize:"1.5rem",color:urgColor,fontWeight:700,lineHeight:1,letterSpacing:"-0.02em",animation:"dayTick 1s ease-in-out infinite"}}>
-              {String(dH).padStart(2,"0")}:{String(dM).padStart(2,"0")}:{String(dS).padStart(2,"0")}
-            </div>}
+            ?<div style={{fontFamily:MO,fontSize:"0.96rem",color:T.t3}}>complete</div>
+            :<TimeBlocks h={dH} m={dM} s={dS} color={urgColor}/>}
         </div>
         <div style={{marginBottom:12}}>
-          <div style={{fontFamily:MO,fontSize:"0.4rem",color:dayColor,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:2}}>Calendar day</div>
-          <div style={{fontFamily:"'DM Mono',monospace",fontSize:"1.5rem",color:dayColor,fontWeight:700,lineHeight:1,letterSpacing:"-0.02em"}}>
-            {String(h24).padStart(2,"0")}:{String(m24).padStart(2,"0")}:{String(s24).padStart(2,"0")}
-          </div>
+          <div style={{fontFamily:MO,fontSize:"0.56rem",color:dayColor,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Calendar day left</div>
+          <TimeBlocks h={h24} m={m24} s={s24} color={dayColor} small/>
         </div>
         {!notStarted&&<>
           <div style={{marginBottom:6}}>
-            <div style={{display:"flex",justifyContent:"space-between",fontFamily:MO,fontSize:"0.38rem",color:T.t3,marginBottom:2}}>
+            <div style={{display:"flex",justifyContent:"space-between",fontFamily:MO,fontSize:"0.46rem",color:T.t3,marginBottom:4}}>
               <span>☀ {wt}</span><span>{pctElapsed.toFixed(1)}%</span><span>🌙 {bt}</span>
             </div>
             <div style={{height:5,background:T.b2,borderRadius:3,overflow:"hidden"}}>
@@ -4364,7 +4445,7 @@ function DayCountdownSection({T,MO,SE,sleepSettings,sleepDayData}){
             </div>
           </div>
           <div>
-            <div style={{display:"flex",justifyContent:"space-between",fontFamily:MO,fontSize:"0.38rem",color:T.t3,marginBottom:2}}>
+            <div style={{display:"flex",justifyContent:"space-between",fontFamily:MO,fontSize:"0.46rem",color:T.t3,marginBottom:4}}>
               <span>12 am</span><span>{pct24.toFixed(1)}%</span><span>midnight</span>
             </div>
             <div style={{height:5,background:T.b2,borderRadius:3,overflow:"hidden"}}>
@@ -4396,6 +4477,9 @@ function FocusDashboard({T,MO,SE,tasks,events,courses,cats,exams,assignments,sem
   const[gradYear,setGradYear]=useState(saved.gradYear||2029);
   const[gradMonth,setGradMonth]=useState(saved.gradMonth??4); // 0-indexed, April=4 (May commencement)
   const[classYear,setClassYear]=useState(saved.classYear||"Freshman");
+  const[birthday,setBirthday]=useState(saved.birthday||"");
+  const[birthdayDraft,setBirthdayDraft]=useState(saved.birthday||"");
+  const[lifeUnit,setLifeUnit]=useState(saved.lifeUnit||"weeks");
   const[tone,setTone]=useState(saved.tone||"tough");
   const[customDeadlines,setCustomDeadlines]=useState(saved.customDeadlines||[]);
   const[showSetup,setShowSetup]=useState(!saved.gradYear);
@@ -4410,7 +4494,8 @@ function FocusDashboard({T,MO,SE,tasks,events,courses,cats,exams,assignments,sem
   const coachScrollRef=useRef(null);
   const coachInputRef=useRef(null);
 
-  useEffect(()=>{save({gradYear,gradMonth,classYear,tone,customDeadlines});},[gradYear,gradMonth,classYear,tone,customDeadlines]);
+  useEffect(()=>{save({gradYear,gradMonth,classYear,birthday,lifeUnit,tone,customDeadlines});},[gradYear,gradMonth,classYear,birthday,lifeUnit,tone,customDeadlines]);
+  useEffect(()=>{setBirthdayDraft(birthday||"");},[birthday]);
   useEffect(()=>{const iv=setInterval(()=>{if(window.puter?.ai){setPuterReady(true);clearInterval(iv);}},500);return()=>clearInterval(iv);},[]);
   useEffect(()=>{if(coachScrollRef.current)coachScrollRef.current.scrollTop=coachScrollRef.current.scrollHeight;},[coachMsgs]);
 
@@ -4443,6 +4528,26 @@ function FocusDashboard({T,MO,SE,tasks,events,courses,cats,exams,assignments,sem
   },[gradYear,gradMonth]);
   const daysToGrad=Math.round((gradDate-today)/(1000*60*60*24));
   const yearsToGrad=(daysToGrad/365).toFixed(1);
+  const semesterWeeks=useMemo(()=>getSemesterWeeks(sem),[sem]);
+  const AVG_LIFE_EXPECTANCY_YEARS=79;
+  const birthDateObj=useMemo(()=>birthday?new Date(birthday+"T00:00:00"):null,[birthday]);
+  const hasBirthday=!!(birthDateObj&&!Number.isNaN(birthDateObj.getTime()));
+  const daysLived=hasBirthday?Math.max(0,Math.round((today-birthDateObj)/(1000*60*60*24))):null;
+  const lifeExpectancyDate=hasBirthday?new Date(birthDateObj.getFullYear()+AVG_LIFE_EXPECTANCY_YEARS,birthDateObj.getMonth(),birthDateObj.getDate()):null;
+  const daysLeftLife=hasBirthday?Math.max(0,Math.round((lifeExpectancyDate-today)/(1000*60*60*24))):null;
+  const displayMetric=(days)=>{
+    if(days==null)return"—";
+    return lifeUnit==="weeks"?Math.max(0,Math.round(days/7)).toLocaleString():days.toLocaleString();
+  };
+  const metricLabel=lifeUnit==="weeks"?"weeks":"days";
+  const doomStatStyle=(accent)=>({
+    padding:"12px 14px",
+    borderRadius:12,
+    border:`1px solid ${accent}55`,
+    background:`linear-gradient(180deg, ${accent}18 0%, ${accent}0c 100%)`,
+    boxShadow:`inset 0 1px 0 rgba(255,255,255,0.06)`,
+    minWidth:0,
+  });
 
   // Urgent tasks for coach context
   const urgentTasks=useMemo(()=>tasks.filter(t=>!t.done&&(t._urgent||(!t.date&&t.hasDueTime)||
@@ -4453,7 +4558,7 @@ function FocusDashboard({T,MO,SE,tasks,events,courses,cats,exams,assignments,sem
     const taskLines=urgentTasks.map(t=>`- ${t.title}${t.date?` (due ${t.date})`:"(ASAP)"}`).join("\n")||"No urgent tasks.";
     const finalsLines=courseFinalsCountdowns.slice(0,6).map(c=>`- ${c.name} ${c.type}: ${c.days} days (${c.date})`).join("\n")||"No finals data.";
     const customLines=customDeadlines.filter(d=>daysUntil(d.date)>=0).map(d=>`- ${d.label}: ${daysUntil(d.date)} days (${d.date})`).join("\n")||"None.";
-    return `Today is ${todayStr}. The student is a ${classYear} graduating in ${gradYear} (${daysToGrad} days left in college).\n\nURGENT TASKS:\n${taskLines}\n\nFINALS COUNTDOWNS:\n${finalsLines}\n\nCUSTOM DEADLINES:\n${customLines}`;
+    return `Today is ${todayStr}. The student is a ${classYear} graduating in ${gradYear} (${daysToGrad} days left in college). ${daysLived!=null?`They have lived about ${daysLived} days and have about ${daysLeftLife} days left if they reach average life expectancy.`:""}\n\nURGENT TASKS:\n${taskLines}\n\nFINALS COUNTDOWNS:\n${finalsLines}\n\nCUSTOM DEADLINES:\n${customLines}`;
   };
 
   const sendCoach=async(text)=>{
@@ -4478,11 +4583,25 @@ function FocusDashboard({T,MO,SE,tasks,events,courses,cats,exams,assignments,sem
   };
 
   const urgencyColor=(days)=>{
-    if(days<0)return"#ef4444";
-    if(days<=2)return"#ef4444";
-    if(days<=7)return"#f97316";
-    if(days<=14)return"#eab308";
-    return T.t2;
+    if(days<0)return"#ff2b2b";
+    if(days<=2)return"#ff2b2b";
+    if(days<=7)return"#ff5a1f";
+    if(days<=14)return"#ff8a00";
+    return"#ff6b00";
+  };
+  const deadlineStatus=(days)=>{
+    if(days<0)return"Deadline passed";
+    if(days===0)return"Today";
+    if(days===1)return"Tomorrow";
+    if(days<=3)return"Immediate";
+    if(days<=7)return"This week";
+    if(days<=14)return"Closing in";
+    return"On the clock";
+  };
+  const deadlineHeadline=(days,noun="days")=>{
+    if(days<0)return `${Math.abs(days).toLocaleString()} ${noun.toUpperCase()} OVERDUE`;
+    if(days===0)return `0 ${noun.toUpperCase()} LEFT`;
+    return `${days.toLocaleString()} ${noun.toUpperCase()} LEFT`;
   };
   const CountdownRing=({days,color,size=56})=>{
     const max=days>0?Math.min(days,30):30;
@@ -4504,6 +4623,12 @@ function FocusDashboard({T,MO,SE,tasks,events,courses,cats,exams,assignments,sem
   const IS={background:T.ib,border:`1px solid ${T.bd}`,borderRadius:6,padding:"6px 10px",
     color:T.tx,fontFamily:"'DM Sans',sans-serif",fontSize:"0.82rem",outline:"none",width:"100%",boxSizing:"border-box"};
   const cardStyle={background:T.b3,border:`1px solid ${T.bd}`,borderRadius:10,padding:"16px 20px"};
+  const doomCard=(accent)=>({
+    ...cardStyle,
+    border:`1px solid ${accent}55`,
+    background:`linear-gradient(180deg, ${accent}16 0%, ${accent}0e 22%, ${T.b3} 64%, ${T.b2} 100%)`,
+    boxShadow:`inset 0 1px 0 ${accent}22, 0 10px 22px rgba(0,0,0,0.08)`,
+  });
 
   // ── Setup banner ──
   const SetupBanner=()=><div style={{...cardStyle,marginBottom:20,border:`1px solid ${T.ac}40`,background:`${T.ac}08`}}>
@@ -4533,6 +4658,37 @@ function FocusDashboard({T,MO,SE,tasks,events,courses,cats,exams,assignments,sem
           {MN2.map((m,i)=><option key={i} value={i}>{m}</option>)}
         </select>
       </div>
+      <div style={{flex:"1 1 180px"}}>
+        <div style={{fontFamily:MO,fontSize:"0.48rem",color:T.t3,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:5}}>Birthday</div>
+        <input
+          type="text"
+          inputMode="numeric"
+          placeholder="YYYY-MM-DD"
+          value={birthdayDraft}
+          onChange={e=>{
+            const next=e.target.value.replace(/[^\d-]/g,"").slice(0,10);
+            setBirthdayDraft(next);
+            if(next===""||/^\d{4}-\d{2}-\d{2}$/.test(next))setBirthday(next);
+          }}
+          onBlur={()=>{
+            const next=birthdayDraft.trim();
+            if(next===""){setBirthday("");return;}
+            if(!/^\d{4}-\d{2}-\d{2}$/.test(next)){setBirthdayDraft(birthday||"");}
+          }}
+          style={IS}
+        />
+      </div>
+      <div style={{flex:"1 1 180px"}}>
+        <div style={{fontFamily:MO,fontSize:"0.48rem",color:T.t3,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:5}}>Life Metric</div>
+        <div style={{display:"flex",gap:6}}>
+          {["weeks","days"].map(u=><button key={u} onClick={()=>setLifeUnit(u)}
+            style={{flex:1,padding:"8px 10px",borderRadius:8,border:`1px solid ${lifeUnit===u?T.ac:T.bd}`,
+              background:lifeUnit===u?`${T.ac}18`:T.ib,color:lifeUnit===u?T.ac:T.t2,cursor:"pointer",
+              fontFamily:MO,fontSize:"0.5rem",letterSpacing:"0.06em",textTransform:"uppercase"}}>
+            {u}
+          </button>)}
+        </div>
+      </div>
     </div>
     <button onClick={()=>setShowSetup(false)}
       style={{marginTop:12,padding:"7px 20px",borderRadius:6,border:"none",background:T.ac,color:T.bg,
@@ -4549,7 +4705,7 @@ function FocusDashboard({T,MO,SE,tasks,events,courses,cats,exams,assignments,sem
             Focus<span style={{color:T.ac,fontStyle:"italic"}}> Dashboard</span>
           </h2>
           <div style={{fontFamily:MO,fontSize:"0.56rem",color:T.t2,letterSpacing:"0.05em",marginTop:4}}>
-            {urgentTasks.length} urgent · {courseFinalsCountdowns.length} finals tracked · {daysToGrad} days to graduation
+            {urgentTasks.length} urgent · {courseFinalsCountdowns.length} finals tracked · {semesterWeeks.weeksLeft} weeks left this semester · {displayMetric(daysToGrad)} {metricLabel} to graduation
           </div>
         </div>
         <button onClick={()=>setShowSetup(p=>!p)}
@@ -4560,15 +4716,62 @@ function FocusDashboard({T,MO,SE,tasks,events,courses,cats,exams,assignments,sem
       {showSetup&&<SetupBanner/>}
 
       {/* Top row: College countdown + Coach tone picker */}
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:20}}>
+      <div style={{display:"grid",gridTemplateColumns:"1.2fr 1fr",gap:16,marginBottom:20}}>
 
         {/* College countdown card */}
-        <div style={{...cardStyle,display:"flex",alignItems:"center",gap:20}}>
-          <CountdownRing days={daysToGrad} color={T.ac} size={72}/>
-          <div>
-            <div style={{fontFamily:SE,fontSize:"1.5rem",color:T.tx,lineHeight:1}}>{daysToGrad.toLocaleString()}</div>
-            <div style={{fontFamily:MO,fontSize:"0.52rem",color:T.t2,marginTop:3,letterSpacing:"0.04em"}}>days left in college</div>
-            <div style={{fontFamily:MO,fontSize:"0.48rem",color:T.t3,marginTop:2}}>{classYear} · Class of {gradYear} · ~{yearsToGrad} years</div>
+        <div style={{...doomCard(urgencyColor(daysToGrad)),display:"flex",alignItems:"center",gap:22,overflow:"hidden",position:"relative"}}>
+          <div style={{position:"absolute",right:-30,top:-30,width:140,height:140,borderRadius:"50%",background:`${urgencyColor(daysToGrad)}12`,pointerEvents:"none"}}/>
+          <CountdownRing days={daysToGrad} color={urgencyColor(daysToGrad)} size={84}/>
+          <div style={{position:"relative",zIndex:1}}>
+            <div style={{fontFamily:MO,fontSize:"0.52rem",color:urgencyColor(daysToGrad),letterSpacing:"0.14em",textTransform:"uppercase",marginBottom:6}}>
+              {deadlineStatus(daysToGrad)}
+            </div>
+            <div style={{fontFamily:"'DM Mono',monospace",fontSize:"clamp(2.8rem,8vw,4.8rem)",color:urgencyColor(daysToGrad),fontWeight:700,lineHeight:0.88,letterSpacing:"-0.08em"}}>
+              {displayMetric(daysToGrad)}
+            </div>
+            <div style={{fontFamily:"'DM Mono',monospace",fontSize:"1.25rem",fontWeight:700,color:T.tx,lineHeight:1,marginTop:8,letterSpacing:"0.08em",textTransform:"uppercase"}}>
+              {metricLabel.toUpperCase()} LEFT IN COLLEGE
+            </div>
+            <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:"0.9rem",color:T.t2,lineHeight:1.55,marginTop:8,maxWidth:420}}>
+              Commencement is approaching whether you are prepared or not. Every wasted week burns down what is left of {classYear.toLowerCase()} year.
+            </div>
+            <div style={{fontFamily:MO,fontSize:"0.48rem",color:T.t3,marginTop:8,letterSpacing:"0.06em",textTransform:"uppercase"}}>{classYear} · Class of {gradYear} · ~{yearsToGrad} years</div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(3,minmax(0,1fr))",gap:10,marginTop:14}}>
+              <div style={doomStatStyle("#ff6b00")}>
+                <div style={{fontFamily:"'DM Mono',monospace",fontSize:"1.8rem",fontWeight:700,lineHeight:0.9,letterSpacing:"-0.06em",color:"#ff6b00"}}>
+                  {displayMetric(daysToGrad)}
+                </div>
+                <div style={{fontFamily:MO,fontSize:"0.42rem",color:T.tx,marginTop:7,letterSpacing:"0.12em",textTransform:"uppercase"}}>{metricLabel} left in college</div>
+              </div>
+              <div style={doomStatStyle("#ff8a00")}>
+                <div style={{fontFamily:"'DM Mono',monospace",fontSize:"1.8rem",fontWeight:700,lineHeight:0.9,letterSpacing:"-0.06em",color:"#ff8a00"}}>
+                  {displayMetric(daysLived)}
+                </div>
+                <div style={{fontFamily:MO,fontSize:"0.42rem",color:T.tx,marginTop:7,letterSpacing:"0.12em",textTransform:"uppercase"}}>{metricLabel} of life elapsed</div>
+              </div>
+              <div style={doomStatStyle("#ff2b2b")}>
+                <div style={{fontFamily:"'DM Mono',monospace",fontSize:"1.8rem",fontWeight:700,lineHeight:0.9,letterSpacing:"-0.06em",color:"#ff2b2b"}}>
+                  {displayMetric(daysLeftLife)}
+                </div>
+                <div style={{fontFamily:MO,fontSize:"0.42rem",color:T.tx,marginTop:7,letterSpacing:"0.12em",textTransform:"uppercase"}}>{metricLabel} left at avg lifespan</div>
+              </div>
+            </div>
+            <div style={{...doomStatStyle("#ff5a1f"),marginTop:10}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:12,flexWrap:"wrap"}}>
+                <div>
+                  <div style={{fontFamily:"'DM Mono',monospace",fontSize:"1.65rem",fontWeight:700,lineHeight:0.9,letterSpacing:"-0.05em",color:"#ff5a1f"}}>
+                    {semesterWeeks.weeksLeft} WEEKS LEFT
+                  </div>
+                  <div style={{fontFamily:MO,fontSize:"0.44rem",color:T.tx,marginTop:7,letterSpacing:"0.12em",textTransform:"uppercase"}}>{PCAL[sem]?.label||"Semester"} · {semesterWeeks.elapsedWeeks}/{semesterWeeks.totalWeeks} weeks elapsed</div>
+                </div>
+                <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:"0.88rem",color:T.t2,lineHeight:1.5,maxWidth:240}}>
+                  The semester is finite. Every week that passes is one you cannot get back.
+                </div>
+              </div>
+            </div>
+            {!hasBirthday&&<div style={{fontFamily:MO,fontSize:"0.46rem",color:T.t3,marginTop:10,letterSpacing:"0.05em"}}>
+              Add your birthday in Profile to calculate life elapsed and projected life remaining using a {AVG_LIFE_EXPECTANCY_YEARS}-year average lifespan.
+            </div>}
           </div>
         </div>
 
@@ -4596,14 +4799,23 @@ function FocusDashboard({T,MO,SE,tasks,events,courses,cats,exams,assignments,sem
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))",gap:10}}>
           {courseFinalsCountdowns.map(c=>{
             const col=urgencyColor(c.days);
-            return <div key={c.courseId} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",
-              borderRadius:8,background:T.b2,border:`1px solid ${T.bd}`}}>
-              <CountdownRing days={c.days} color={c.days<=7?col:c.color} size={46}/>
-              <div style={{minWidth:0}}>
-                <div style={{fontFamily:MO,fontSize:"0.52rem",color:c.days<=7?col:T.tx,fontWeight:600,
-                  overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",letterSpacing:"0.02em"}}>{c.name}</div>
-                <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:"0.7rem",color:T.t3,marginTop:1}}>{c.type}{c.estimated?" *":""}</div>
-                <div style={{fontFamily:MO,fontSize:"0.46rem",color:col,marginTop:1}}>{c.days<0?"PAST":c.days===0?"TODAY":c.days===1?"TOMORROW":`${c.date}`}</div>
+            return <div key={c.courseId} style={{...doomCard(c.days<=7?col:c.color),padding:"14px 14px 13px"}}>
+              <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:10}}>
+                <div style={{minWidth:0,flex:1}}>
+                  <div style={{fontFamily:MO,fontSize:"0.48rem",color:col,fontWeight:700,
+                    overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",letterSpacing:"0.08em",textTransform:"uppercase"}}>{c.name}</div>
+                  <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:"0.8rem",color:T.t2,marginTop:3}}>{c.type}{c.estimated?" *":""}</div>
+                </div>
+                <CountdownRing days={c.days} color={c.days<=7?col:c.color} size={52}/>
+              </div>
+              <div style={{fontFamily:"'DM Mono',monospace",fontSize:"2.35rem",color:col,fontWeight:700,lineHeight:0.9,letterSpacing:"-0.07em",marginTop:10}}>
+                {c.days<0?Math.abs(c.days).toLocaleString():c.days.toLocaleString()}
+              </div>
+              <div style={{fontFamily:"'DM Mono',monospace",fontSize:"0.96rem",fontWeight:700,color:T.tx,lineHeight:1.05,marginTop:5,letterSpacing:"0.06em",textTransform:"uppercase"}}>
+                {c.days<0?"DAYS PAST FINAL":c.days===1?"DAY UNTIL FINAL":`DAYS UNTIL FINAL`}
+              </div>
+              <div style={{fontFamily:MO,fontSize:"0.46rem",color:col,marginTop:8,letterSpacing:"0.08em",textTransform:"uppercase"}}>
+                {deadlineStatus(c.days)} · {c.date}
               </div>
             </div>;
           })}
@@ -4638,16 +4850,26 @@ function FocusDashboard({T,MO,SE,tasks,events,courses,cats,exams,assignments,sem
         {customDeadlines.length>0&&<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:8}}>
           {[...customDeadlines].sort((a,b)=>a.date<b.date?-1:1).map(dl=>{
             const d=daysUntil(dl.date),col=urgencyColor(d);
-            return <div key={dl.id} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",
-              borderRadius:8,background:T.b2,border:`1px solid ${T.bd}`}}>
-              <CountdownRing days={d} color={col} size={46}/>
-              <div style={{flex:1,minWidth:0}}>
-                <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:"0.82rem",color:T.tx,fontWeight:500,
-                  overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{dl.label}</div>
-                <div style={{fontFamily:MO,fontSize:"0.46rem",color:col,marginTop:2}}>{d<0?"PAST":d===0?"TODAY":d===1?"TOMORROW":dl.date}</div>
+            return <div key={dl.id} style={{...doomCard(col),padding:"14px 14px 12px"}}>
+              <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:10}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:"0.86rem",color:T.tx,fontWeight:600,
+                    overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{dl.label}</div>
+                  <div style={{fontFamily:MO,fontSize:"0.44rem",color:col,marginTop:4,letterSpacing:"0.08em",textTransform:"uppercase"}}>{deadlineStatus(d)}</div>
+                </div>
+                <CountdownRing days={d} color={col} size={50}/>
               </div>
-              <button onClick={()=>setCustomDeadlines(p=>p.filter(x=>x.id!==dl.id))}
-                style={{background:"none",border:"none",cursor:"pointer",color:T.t3,fontSize:"0.9rem",padding:"2px 4px",flexShrink:0}}>✕</button>
+              <div style={{fontFamily:"'DM Mono',monospace",fontSize:"2.2rem",color:col,fontWeight:700,lineHeight:0.92,letterSpacing:"-0.07em",marginTop:10}}>
+                {d<0?Math.abs(d).toLocaleString():d.toLocaleString()}
+              </div>
+              <div style={{fontFamily:"'DM Mono',monospace",fontSize:"0.94rem",fontWeight:700,color:T.tx,lineHeight:1.05,marginTop:5,letterSpacing:"0.06em",textTransform:"uppercase"}}>
+                {deadlineHeadline(d,d===1?"day":"days")}
+              </div>
+              <div style={{fontFamily:MO,fontSize:"0.46rem",color:T.t3,marginTop:8,letterSpacing:"0.06em"}}>{dl.date}</div>
+              <div style={{display:"flex",justifyContent:"flex-end",marginTop:2}}>
+                <button onClick={()=>setCustomDeadlines(p=>p.filter(x=>x.id!==dl.id))}
+                  style={{background:"none",border:"none",cursor:"pointer",color:T.t3,fontSize:"0.9rem",padding:"2px 4px",flexShrink:0}}>✕</button>
+              </div>
             </div>;
           })}
         </div>}
@@ -5951,7 +6173,14 @@ function EModal({T,modal,setModal,aE,uE,dE,dSB,aT,uT,dT,cats,MO,SE}){
         <NotesField value={det} onChange={setDet} placeholder="Details, readings, links…" T={T} MO={MO} IS={IS} minHeight={45}/></div>}
 
       <div style={{display:"flex",gap:7,justifyContent:"space-between"}}>
-        <div style={{display:"flex",gap:5,alignItems:"center",flexWrap:"wrap"}}>{isEd&&<button onClick={handleDel} style={{padding:"5px 12px",borderRadius:6,border:`1px solid ${T.dg}`,
+        <div style={{display:"flex",gap:5,alignItems:"center",flexWrap:"wrap"}}>
+          {isEd&&tp==="task"&&<button onClick={()=>{tT(modal.data.id);setModal(null);}}
+            style={{padding:"5px 12px",borderRadius:6,border:`1px solid ${modal.data?.done?T.ac:"#22c55e"}`,
+              background:modal.data?.done?`${T.ac}12`:"rgba(34,197,94,0.12)",color:modal.data?.done?T.ac:"#15803d",
+              cursor:"pointer",fontSize:"0.76rem",fontWeight:600}}>
+            {modal.data?.done?"Mark Incomplete":"Mark Complete"}
+          </button>}
+          {isEd&&<button onClick={handleDel} style={{padding:"5px 12px",borderRadius:6,border:`1px solid ${T.dg}`,
           background:cd2?T.dg:`${T.dg}15`,color:cd2?"#fff":T.dg,cursor:"pointer",fontSize:"0.76rem",fontWeight:500}}>
           {cd2?"Confirm":"Delete"}</button>}
           {isEd&&isSB&&<button onClick={()=>{if(!cd3){setCd3(true);return;}dSB(modal.data);setModal(null);}} style={{padding:"5px 12px",borderRadius:6,border:`1px solid ${T.dg}`,
@@ -7073,6 +7302,7 @@ const DASH_WIDGET_TYPES=[
   {type:"priorities",icon:"🎯",label:"Priorities",desc:"Personal priority checklist"},
   {type:"quote",icon:"💬",label:"Quote / Note",desc:"Inspiration or custom note block"},
   {type:"countdown",icon:"⏳",label:"Countdown",desc:"Days until a date"},
+  {type:"semester",icon:"🗓️",label:"Semester Weeks",desc:"Weeks elapsed and left this semester"},
   {type:"sleep",icon:"🌙",label:"Sleep Summary",desc:"Today's sleep at a glance"},
   {type:"week",icon:"📆",label:"Week Preview",desc:"This week's upcoming events"},
   {type:"links",icon:"🔗",label:"Quick Links",desc:"Custom bookmarks & links"},
@@ -7240,6 +7470,7 @@ function DashboardView({T,MO,SE,user,allEvents,tasks,cats,courses,dashPriorities
     const actual=(ovr.actualHours!=null&&ovr.actualMins!=null)?(ovr.actualHours*60+ovr.actualMins):null;
     return{bedtime:bt,wakeTime:wt,planned,actual};
   },[sleepSettings,sleepDayData,today]);
+  const semesterWeeks=useMemo(()=>getSemesterWeeks(sem),[sem]);
 
   // ── Category helpers ──
   const getCatColor=(cat)=>cats[cat]?.color||"#aaa5b5";
@@ -7252,6 +7483,12 @@ function DashboardView({T,MO,SE,user,allEvents,tasks,cats,courses,dashPriorities
 
   // ── Priorities helpers ──
   const[newP,setNewP]=useState("");
+  const updatePriorityText=(id,text)=>setDashPriorities(p=>{
+    const trimmed=text.trim();
+    const n=p.map(x=>x.id===id?{...x,text:trimmed||x.text}:x);
+    onSave?.(dashLayout,n);
+    return n;
+  });
   const addPriority=()=>{if(!newP.trim())return;setDashPriorities(p=>{const n=[...p,{id:gi(),text:newP.trim(),done:false}];onSave?.(dashLayout,n);return n;});setNewP("");};
   const togglePriority=(id)=>setDashPriorities(p=>{const n=p.map(x=>x.id===id?{...x,done:!x.done}:x);onSave?.(dashLayout,n);return n;});
   const deletePriority=(id)=>setDashPriorities(p=>{const n=p.filter(x=>x.id!==id);onSave?.(dashLayout,n);return n;});
@@ -7372,8 +7609,17 @@ function DashboardView({T,MO,SE,user,allEvents,tasks,cats,courses,dashPriorities
               display:"flex",alignItems:"center",justifyContent:"center",transition:"all 0.18s"}}>
             {p.done&&<span style={{color:T.bg,fontSize:"0.6rem",fontWeight:800}}>✓</span>}
           </div>
-          <span style={{flex:1,fontFamily:"'DM Sans',sans-serif",fontSize:"0.89rem",color:T.tx,
-            textDecoration:p.done?"line-through":"none",lineHeight:1.4,wordBreak:"break-word"}}>{p.text}</span>
+          {editMode
+            ?<input
+              value={p.text}
+              onChange={e=>setDashPriorities(cur=>cur.map(x=>x.id===p.id?{...x,text:e.target.value}:x))}
+              onBlur={e=>updatePriorityText(p.id,e.target.value)}
+              onKeyDown={e=>{e.stopPropagation();if(e.key==="Enter"){e.currentTarget.blur();}}}
+              style={{flex:1,padding:"6px 8px",borderRadius:7,border:`1px solid ${T.bd}`,background:T.ib,color:T.tx,
+                fontFamily:"'DM Sans',sans-serif",fontSize:"0.89rem",outline:"none",textDecoration:p.done?"line-through":"none"}}
+            />
+            :<span style={{flex:1,fontFamily:"'DM Sans',sans-serif",fontSize:"0.89rem",color:T.tx,
+              textDecoration:p.done?"line-through":"none",lineHeight:1.4,wordBreak:"break-word"}}>{p.text}</span>}
           <div style={{display:"flex",gap:1,flexShrink:0}}>
             <button onClick={()=>movePriority(p.id,-1)} disabled={idx===0} style={{background:"none",border:"none",cursor:idx===0?"default":"pointer",color:T.t3,padding:"2px 4px",fontSize:"0.72rem",opacity:idx===0?0.25:0.8}}>↑</button>
             <button onClick={()=>movePriority(p.id,1)} disabled={idx===dashPriorities.length-1} style={{background:"none",border:"none",cursor:idx===dashPriorities.length-1?"default":"pointer",color:T.t3,padding:"2px 4px",fontSize:"0.72rem",opacity:idx===dashPriorities.length-1?0.25:0.8}}>↓</button>
@@ -7398,11 +7644,11 @@ function DashboardView({T,MO,SE,user,allEvents,tasks,cats,courses,dashPriorities
     const accent=cfg.accent||T.ac;
     return <div style={{padding:"6px 0"}}>
       <div style={{borderLeft:`4px solid ${accent}`,paddingLeft:18,paddingRight:4}}>
-        <p style={{fontFamily:"'DM Serif Display',Georgia,serif",fontSize:"1.12rem",color:T.tx,
+        <p style={{fontFamily:"'DM Serif Display',Georgia,serif",fontSize:"1.36rem",color:T.tx,
           lineHeight:1.65,margin:0,fontStyle:"italic"}}>
           {cfg.text||<span style={{color:T.t3,fontStyle:"italic",fontSize:"0.9rem"}}>Click ✏ Edit to add your quote…</span>}
         </p>
-        {cfg.author&&<p style={{fontFamily:MO,fontSize:"0.46rem",color:T.t3,marginTop:10,letterSpacing:"0.06em"}}>— {cfg.author}</p>}
+        {cfg.author&&<p style={{fontFamily:MO,fontSize:"0.76rem",color:T.t2,marginTop:14,letterSpacing:"0.1em",textTransform:"uppercase"}}>— {cfg.author}</p>}
       </div>
     </div>;
   };
@@ -7420,7 +7666,7 @@ function DashboardView({T,MO,SE,user,allEvents,tasks,cats,courses,dashPriorities
     const past=diff<0;
     const pct=past?100:Math.max(2,100-Math.min(100,(diff/90)*100));
     return <div style={{textAlign:"center",padding:"8px 0"}}>
-      <p style={{fontFamily:MO,fontSize:"0.48rem",color:T.t3,letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:10}}>{cfg.label||"Countdown"}</p>
+      <p style={{fontFamily:MO,fontSize:"0.82rem",color:T.t2,fontWeight:700,letterSpacing:"0.18em",textTransform:"uppercase",marginBottom:10}}>{cfg.label||"Countdown"}</p>
       <div style={{display:"inline-flex",alignItems:"baseline",gap:6,marginBottom:6}}>
         <span style={{fontFamily:"'DM Serif Display',Georgia,serif",fontSize:"3.6rem",
           color:past?"#d94f4f":accent,fontWeight:700,lineHeight:1,letterSpacing:"-0.04em"}}>
@@ -7460,6 +7706,24 @@ function DashboardView({T,MO,SE,user,allEvents,tasks,cats,courses,dashPriorities
     <div style={{display:"flex",justifyContent:"space-between"}}>
       <span style={{fontFamily:MO,fontSize:"0.43rem",color:T.t3}}>🌙 {todaySleep.bedtime}</span>
       <span style={{fontFamily:MO,fontSize:"0.43rem",color:T.t3}}>☀ {todaySleep.wakeTime}</span>
+    </div></>;
+  };
+  const renderSemester=()=>{
+    const col=semesterWeeks.weeksLeft<=2?"#ff2b2b":semesterWeeks.weeksLeft<=5?"#ff5a1f":"#ff8a00";
+    return <><WTitle icon="🗓️" label="Semester Weeks" sub={PCAL[sem]?.label||"Current semester"}/>
+    <div style={{padding:"6px 0"}}>
+      <div style={{fontFamily:"'DM Mono',monospace",fontSize:"2.8rem",lineHeight:0.9,fontWeight:700,letterSpacing:"-0.06em",color:col}}>
+        {semesterWeeks.weeksLeft}
+      </div>
+      <div style={{fontFamily:MO,fontSize:"0.68rem",color:T.tx,letterSpacing:"0.14em",textTransform:"uppercase",marginTop:8}}>
+        Weeks Left This Semester
+      </div>
+      <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:"0.84rem",color:T.t2,marginTop:8,lineHeight:1.55}}>
+        {semesterWeeks.elapsedWeeks} of {semesterWeeks.totalWeeks} instructional weeks are already gone.
+      </div>
+      <div style={{height:6,background:T.b2,borderRadius:4,overflow:"hidden",marginTop:10}}>
+        <div style={{height:"100%",width:`${semesterWeeks.totalWeeks?Math.min(100,(semesterWeeks.elapsedWeeks/semesterWeeks.totalWeeks)*100):0}%`,background:col,borderRadius:4}}/>
+      </div>
     </div></>;
   };
 
@@ -7511,6 +7775,7 @@ function DashboardView({T,MO,SE,user,allEvents,tasks,cats,courses,dashPriorities
       case"priorities":return renderPriorities();
       case"quote":return renderQuote(w);
       case"countdown":return renderCountdown(w);
+      case"semester":return renderSemester();
       case"sleep":return renderSleep();
       case"week":return renderWeek();
       case"links":return renderLinks(w);
