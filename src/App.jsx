@@ -4695,7 +4695,7 @@ function FocusDashboard({T,MO,SE,tasks,events,courses,cats,exams,assignments,sem
         cursor:"pointer",fontFamily:MO,fontSize:"0.56rem",fontWeight:600}}>Save & Close</button>
   </div>;
 
-  return <div style={{flex:1,overflow:"auto",padding:"24px 28px 48px",background:T.bg,boxSizing:"border-box"}}>
+  return <div className="focus-main-pad" style={{flex:1,overflow:"auto",padding:"24px 28px 48px",background:T.bg,boxSizing:"border-box"}}>
     <div style={{maxWidth:1100,margin:"0 auto"}}>
 
       {/* Header */}
@@ -4716,10 +4716,10 @@ function FocusDashboard({T,MO,SE,tasks,events,courses,cats,exams,assignments,sem
       {showSetup&&<SetupBanner/>}
 
       {/* Top row: College countdown + Coach tone picker */}
-      <div style={{display:"grid",gridTemplateColumns:"1.2fr 1fr",gap:16,marginBottom:20}}>
+      <div className="focus-top-row" style={{display:"grid",gridTemplateColumns:"1.2fr 1fr",gap:16,marginBottom:20}}>
 
         {/* College countdown card */}
-        <div style={{...doomCard(urgencyColor(daysToGrad)),display:"flex",alignItems:"center",gap:22,overflow:"hidden",position:"relative"}}>
+        <div style={{...doomCard(urgencyColor(daysToGrad)),display:"flex",alignItems:"flex-start",flexWrap:"wrap",gap:22,overflow:"hidden",position:"relative"}}>
           <div style={{position:"absolute",right:-30,top:-30,width:140,height:140,borderRadius:"50%",background:`${urgencyColor(daysToGrad)}12`,pointerEvents:"none"}}/>
           <CountdownRing days={daysToGrad} color={urgencyColor(daysToGrad)} size={84}/>
           <div style={{position:"relative",zIndex:1}}>
@@ -4736,7 +4736,7 @@ function FocusDashboard({T,MO,SE,tasks,events,courses,cats,exams,assignments,sem
               Commencement is approaching whether you are prepared or not. Every wasted week burns down what is left of {classYear.toLowerCase()} year.
             </div>
             <div style={{fontFamily:MO,fontSize:"0.48rem",color:T.t3,marginTop:8,letterSpacing:"0.06em",textTransform:"uppercase"}}>{classYear} · Class of {gradYear} · ~{yearsToGrad} years</div>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(3,minmax(0,1fr))",gap:10,marginTop:14}}>
+            <div className="doom-stats-grid" style={{display:"grid",gridTemplateColumns:"repeat(3,minmax(0,1fr))",gap:10,marginTop:14}}>
               <div style={doomStatStyle("#ff6b00")}>
                 <div style={{fontFamily:"'DM Mono',monospace",fontSize:"1.8rem",fontWeight:700,lineHeight:0.9,letterSpacing:"-0.06em",color:"#ff6b00"}}>
                   {displayMetric(daysToGrad)}
@@ -6222,7 +6222,8 @@ function TasksDashboard({T,MO,SE,tasks,cats,courses,aT,uT,dT,tT,pushUndo}){
   // ── UI state ──
   const[filter,setFilter]=useState("all");
   const[courseFilter,setCourseFilter]=useState("all");
-  const[timeFilter,setTimeFilter]=useState("all"); // "all" | "week" | "two-weeks" | "month"
+  const[timeFilter,setTimeFilter]=useState("all"); // "all" | "one-day" | "two-days" | "week" | "two-weeks" | "month"
+  const[sortBy,setSortBy]=useState("due"); // "due" | "name" | "est"
   const[showDone,setShowDone]=useState(false);
   const[editModal,setEditModal]=useState(null);
   const[addOpen,setAddOpen]=useState(false);
@@ -6303,6 +6304,10 @@ function TasksDashboard({T,MO,SE,tasks,cats,courses,aT,uT,dT,tT,pushUndo}){
         // current week: Sunday through Saturday
         const ws=$w(today,0);
         endStr=$d($a(ws,6));
+      } else if(timeFilter==="one-day"){
+        endStr=$d($a(today,1));
+      } else if(timeFilter==="two-days"){
+        endStr=$d($a(today,2));
       } else if(timeFilter==="two-weeks"){
         endStr=$d($a(today,13));
       } else if(timeFilter==="month"){
@@ -6325,12 +6330,23 @@ function TasksDashboard({T,MO,SE,tasks,cats,courses,aT,uT,dT,tT,pushUndo}){
     return ts;
   },[allDash,filter,courseFilter,courseIds,timeFilter]);
 
-  const urgent=filtered.filter(t=>t._urgent&&!t.done);
-  const normal=filtered.filter(t=>!t._urgent&&!t.done);
-  const done=filtered.filter(t=>t.done);
-
   const estMap={"15 min":0.25,"30 min":0.5,"45 min":0.75,"1 hr":1,"1.5 hr":1.5,"2 hr":2,"3 hr":3,"4+ hr":4};
   const parseEst=(v)=>{if(!v)return 0;if(estMap[v]!==undefined)return estMap[v];const hrM=v.match(/(\d+\.?\d*)\s*(h|hr|hrs|hour|hours)/i);if(hrM)return parseFloat(hrM[1]);const minM=v.match(/(\d+\.?\d*)\s*(m|min|mins|minute|minutes)/i);if(minM)return parseFloat(minM[1])/60;const n=parseFloat(v);return isNaN(n)?0:n;};
+  const applySort=(ts)=>{
+    const arr=[...ts];
+    if(sortBy==="name") return arr.sort((a,b)=>a.title.localeCompare(b.title));
+    if(sortBy==="est") return arr.sort((a,b)=>parseEst(b._est||"")-parseEst(a._est||""));
+    // default: due date (undated last)
+    return arr.sort((a,b)=>{
+      if(!a.date&&!b.date) return 0;
+      if(!a.date) return 1;
+      if(!b.date) return -1;
+      return a.date<b.date?-1:a.date>b.date?1:0;
+    });
+  };
+  const urgent=applySort(filtered.filter(t=>t._urgent&&!t.done));
+  const normal=applySort(filtered.filter(t=>!t._urgent&&!t.done));
+  const done=applySort(filtered.filter(t=>t.done));
   const totalEst=[...urgent,...normal].reduce((s,t)=>s+parseEst(t._est||""),0);
 
   // ── Task CRUD ──
@@ -6453,20 +6469,21 @@ function TasksDashboard({T,MO,SE,tasks,cats,courses,aT,uT,dT,tT,pushUndo}){
       <div style={{flex:1,minWidth:0}}>
         <div style={{fontSize:"0.92rem",fontWeight:500,lineHeight:1.35,color:T.tx,
           textDecoration:tk.done?"line-through":"none",marginBottom:3}}>{tk.title}</div>
-        <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
-          <span style={{fontFamily:MO,fontSize:"0.54rem",padding:"2px 8px",borderRadius:10,
+        <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap",rowGap:4}}>
+          <span style={{fontFamily:MO,fontSize:"0.7rem",padding:"2px 8px",borderRadius:10,
             background:cb,color:cc,border:`1px solid ${hexToRgba(cc,0.25)}`,letterSpacing:"0.03em"}}>{cl}</span>
-          {tk._urgent&&!tk.done&&<span style={{fontFamily:MO,fontSize:"0.52rem",padding:"2px 7px",borderRadius:10,
+          {tk._urgent&&!tk.done&&<span style={{fontFamily:MO,fontSize:"0.7rem",padding:"2px 7px",borderRadius:10,
             background:hexToRgba(T.dg,0.12),color:T.dg,border:`1px solid ${hexToRgba(T.dg,0.25)}`}}>urgent</span>}
-          {!tk.date&&!tk.done&&<span style={{fontFamily:MO,fontSize:"0.52rem",padding:"2px 7px",borderRadius:10,
+          {!tk.date&&!tk.done&&<span style={{fontFamily:MO,fontSize:"0.7rem",padding:"2px 7px",borderRadius:10,
             background:"rgba(249,115,22,0.12)",color:"#f97316",border:"1px solid rgba(249,115,22,0.25)"}}>ASAP</span>}
-          {tk._est&&<span style={{fontFamily:MO,fontSize:"0.52rem",color:T.t3}}>⏱ {tk._est}</span>}
-          {tk.date&&<span style={{fontFamily:MO,fontSize:"0.52rem",color:T.t2}}>📅 {tk.date}{tk.hasDueTime&&tk.dueHour!=null?` at ${$t(tk.dueHour,tk.dueMin||0)}`:""}</span>}
-          {tk.detail&&<span style={{fontFamily:MO,fontSize:"0.52rem",color:T.t3,overflow:"hidden",
-            textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:220}}>
-            <RenderNotes text={tk.detail} T={T} inline={true} style={{fontSize:"0.52rem",color:T.t3}}/>
-          </span>}
+          {tk._est&&<span style={{fontFamily:MO,fontSize:"0.72rem",color:T.t3}}>⏱ {tk._est}</span>}
+          {tk.date&&<span style={{fontFamily:MO,fontSize:"0.72rem",color:T.t2}}>📅 {tk.date}{tk.hasDueTime&&tk.dueHour!=null?` at ${$t(tk.dueHour,tk.dueMin||0)}`:""}</span>}
         </div>
+        {tk.detail&&<div style={{fontFamily:MO,fontSize:"0.68rem",color:T.t3,marginTop:4,
+          overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",
+          wordBreak:"break-word",lineHeight:1.5}}>
+          <RenderNotes text={tk.detail} T={T} inline={true} style={{fontSize:"0.68rem",color:T.t3}}/>
+        </div>}
       </div>
       <button onClick={e=>{e.stopPropagation();pushUndo();dT(tk.id);}} title="Delete"
         style={{background:"none",border:"none",cursor:"pointer",color:T.t3,
@@ -6477,7 +6494,7 @@ function TasksDashboard({T,MO,SE,tasks,cats,courses,aT,uT,dT,tT,pushUndo}){
   const Section=({label,items,accent})=>{
     if(!items.length)return null;
     return <div style={{marginBottom:6}}>
-      <div style={{fontFamily:MO,fontSize:"0.56rem",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.08em",
+      <div style={{fontFamily:MO,fontSize:"0.7rem",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.08em",
         color:accent||T.t3,padding:"12px 0 5px",display:"flex",alignItems:"center",gap:5}}>
         {accent&&<div style={{width:7,height:7,borderRadius:"50%",background:accent,flexShrink:0}}/>}
         {label}<span style={{color:T.t3,fontWeight:400,marginLeft:2}}>{items.length}</span>
@@ -6615,7 +6632,7 @@ function TasksDashboard({T,MO,SE,tasks,cats,courses,aT,uT,dT,tT,pushUndo}){
   </div>;
 
   // ── Main render ──
-  return <div style={{flex:1,overflow:"auto",display:"flex",justifyContent:"center",padding:"28px 32px 48px",background:T.bg}}>
+  return <div className="tasks-main-pad" style={{flex:1,overflow:"auto",display:"flex",justifyContent:"center",padding:"28px 32px 48px",background:T.bg}}>
     <div style={{width:"100%",maxWidth:1100}}>
       {/* Header */}
       <div style={{marginBottom:24}}>
@@ -6624,7 +6641,7 @@ function TasksDashboard({T,MO,SE,tasks,cats,courses,aT,uT,dT,tT,pushUndo}){
             <h2 style={{fontFamily:SE,fontSize:"2rem",fontWeight:400,margin:0,color:T.tx,letterSpacing:"-0.02em"}}>
               Task<span style={{color:T.ac,fontStyle:"italic"}}> Dashboard</span>
             </h2>
-            <div style={{fontFamily:MO,fontSize:"0.6rem",color:T.t2,letterSpacing:"0.05em",marginTop:4}}>
+            <div style={{fontFamily:MO,fontSize:"0.72rem",color:T.t2,letterSpacing:"0.05em",marginTop:4}}>
               {doneCount} of {total} done &nbsp;·&nbsp; {total-doneCount} remaining
               {totalEst>0&&<> &nbsp;·&nbsp; ~{totalEst%1===0?totalEst:totalEst.toFixed(1)}h estimated</>}
             </div>
@@ -6711,12 +6728,28 @@ function TasksDashboard({T,MO,SE,tasks,cats,courses,aT,uT,dT,tT,pushUndo}){
 
       {/* Time filter */}
       <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:12,alignItems:"center"}}>
-        <span style={{fontFamily:MO,fontSize:"0.52rem",color:T.t3,letterSpacing:"0.06em",textTransform:"uppercase",marginRight:2}}>Due:</span>
-        {[["all","All"],["week","This Week"],["two-weeks","Next 2 Weeks"],["month","This Month"]].map(([k,label])=>{
+        <span style={{fontFamily:MO,fontSize:"0.7rem",color:T.t3,letterSpacing:"0.06em",textTransform:"uppercase",marginRight:2}}>Due:</span>
+        {[["all","All"],["one-day","Next Day"],["two-days","Next 2 Days"],["week","This Week"],["two-weeks","Next 2 Weeks"],["month","This Month"]].map(([k,label])=>{
           const isActive=timeFilter===k;
           return <button key={k} onClick={()=>setTimeFilter(k)}
             style={{padding:"4px 12px",borderRadius:10,cursor:"pointer",
-              fontFamily:MO,fontSize:"0.54rem",letterSpacing:"0.04em",
+              fontFamily:MO,fontSize:"0.7rem",letterSpacing:"0.04em",
+              background:isActive?T.b2:"transparent",
+              color:isActive?T.tx:T.t3,
+              border:`1px solid ${isActive?T.bd:"transparent"}`,transition:"all 0.12s"}}>
+            {label}
+          </button>;
+        })}
+      </div>
+
+      {/* Sort control */}
+      <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:12,alignItems:"center"}}>
+        <span style={{fontFamily:MO,fontSize:"0.7rem",color:T.t3,letterSpacing:"0.06em",textTransform:"uppercase",marginRight:2}}>Sort:</span>
+        {[["due","Due Date"],["name","Name"],["est","Est. Time"]].map(([k,label])=>{
+          const isActive=sortBy===k;
+          return <button key={k} onClick={()=>setSortBy(k)}
+            style={{padding:"4px 12px",borderRadius:10,cursor:"pointer",
+              fontFamily:MO,fontSize:"0.7rem",letterSpacing:"0.04em",
               background:isActive?T.b2:"transparent",
               color:isActive?T.tx:T.t3,
               border:`1px solid ${isActive?T.bd:"transparent"}`,transition:"all 0.12s"}}>
@@ -6732,14 +6765,14 @@ function TasksDashboard({T,MO,SE,tasks,cats,courses,aT,uT,dT,tT,pushUndo}){
           const col=ft.color||T.ac;
           return <button key={ft.key} onClick={()=>{setFilter(ft.key);setCourseFilter("all");}}
             style={{display:"flex",alignItems:"center",gap:5,padding:"5px 14px",borderRadius:12,cursor:"pointer",
-              fontFamily:MO,fontSize:"0.58rem",letterSpacing:"0.04em",textTransform:"uppercase",
+              fontFamily:MO,fontSize:"0.7rem",letterSpacing:"0.04em",textTransform:"uppercase",
               background:isActive?col:"transparent",
               color:isActive?"#fff":T.t2,
               border:`1px solid ${isActive?col:T.bd}`,transition:"all 0.15s"}}>
             {ft.key!=="all"&&ft.key!=="coursework"&&<div style={{width:7,height:7,borderRadius:"50%",
               background:isActive?"rgba(255,255,255,0.7)":col,flexShrink:0}}/>}
             {ft.label}
-            {ft.count>0&&<span style={{fontFamily:MO,fontSize:"0.5rem",
+            {ft.count>0&&<span style={{fontFamily:MO,fontSize:"0.62rem",
               background:isActive?"rgba(255,255,255,0.22)":hexToRgba(col,0.15),
               color:isActive?"#fff":col,borderRadius:8,padding:"0 5px",minWidth:16,textAlign:"center"}}>{ft.count}</span>}
           </button>;
@@ -7873,7 +7906,7 @@ function DashboardView({T,MO,SE,user,allEvents,tasks,cats,courses,dashPriorities
 
     {/* ─── Widget Grid ─── */}
     <div style={{padding:"20px 20px 48px",maxWidth:980,margin:"0 auto"}}>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:14,alignItems:"start"}}>
+      <div className="dash-widget-grid" style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:14,alignItems:"start"}}>
         {dashLayout.map(w=>(
           <div key={w.id} style={{gridColumn:w.width==="full"?"1 / -1":"auto"}}>
             {WCard({w,children:renderWidget(w)})}
