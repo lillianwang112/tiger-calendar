@@ -1336,7 +1336,7 @@ function App(){
         </>}
       </div>
     </div>
-    {modal&&modal.type!=="_catEdit"&&modal.type!=="_account"&&modal.type!=="_tapPreview"&&modal.type!=="_sleep"&&<EModal T={T} modal={modal} setModal={setModal} aE={aE} uE={uE} dE={dE} dSB={dSB} aT={aT} uT={uT} dT={dT} cats={cats} MO={MO} SE={SE}/>}
+    {modal&&modal.type!=="_catEdit"&&modal.type!=="_account"&&modal.type!=="_tapPreview"&&modal.type!=="_sleep"&&<EModal T={T} modal={modal} setModal={setModal} aE={aE} uE={uE} dE={dE} dSB={dSB} aT={aT} uT={uT} dT={dT} tT={tT} cats={cats} MO={MO} SE={SE}/>}
     {modal&&modal.type==="_sleep"&&<SleepModal T={T} MO={MO} SE={SE} modal={modal} setModal={setModal} sleepSettings={sleepSettings} setSleepSettings={setSleepSettings} sleepDayData={sleepDayData} setSleepDayData={setSleepDayData}/>}
     {modal&&modal.type==="_account"&&user&&<AccountModal T={T} MO={MO} SE={SE} user={user} signOut={signOut} deleteAccount={deleteAccount} setModal={setModal}/>}
     {modal&&modal.type==="_catEdit"&&<CatModal T={T} MO={MO} SE={SE} cats={cats} setCats={setCats} setModal={setModal}/>}
@@ -5979,7 +5979,7 @@ function NotesField({value,onChange,placeholder,T,MO,IS,minHeight=45}){
 }
 
 // ═══ EVENT/TASK MODAL ═══
-function EModal({T,modal,setModal,aE,uE,dE,dSB,aT,uT,dT,cats,MO,SE}){
+function EModal({T,modal,setModal,aE,uE,dE,dSB,aT,uT,dT,tT,cats,MO,SE}){
   const isEd=!!modal.data;const[tp,setTp]=useState(modal.type);const pf=modal.prefill||{};
   const[title,setTitle]=useState(modal.data?.title||"");
   const[cat,setCat]=useState(modal.data?.category||"personal");
