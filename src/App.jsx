@@ -726,7 +726,7 @@ function App(){
   const[chatOpen,setChatOpen]=useState(false);
   const[viewOpen,setViewOpen]=useState(false);
   const viewBtnRef=useRef(null);
-  const[viewDropPos,setViewDropPos]=useState({top:0,right:0});
+  const[viewDropPos,setViewDropPos]=useState({top:0,left:0});
   const skipFontSizeReadRef=useRef(false);
   const[mcM,setMcM]=useState(()=>new Date());
   const[sbO,setSbO]=useState(()=>window.innerWidth>=768);
@@ -775,9 +775,14 @@ function App(){
   useEffect(()=>{
     if(!authLoading){
       const shell=document.getElementById("app-shell");
-      if(shell){shell.classList.add("hide");setTimeout(()=>shell.remove(),300);}
+      if(shell){shell.classList.add("hide");shell.style.visibility="hidden";setTimeout(()=>{if(shell.parentNode)shell.remove();},300);}
     }
   },[authLoading]);
+  // Fallback: always hide shell after 8s in case auth never resolves (e.g. Safari PWA on macOS)
+  useEffect(()=>{
+    const t=setTimeout(()=>{const s=document.getElementById("app-shell");if(s){s.classList.add("hide");s.style.visibility="hidden";setTimeout(()=>{if(s.parentNode)s.remove();},300);}},8000);
+    return()=>clearTimeout(t);
+  },[]);
 
   const syncSetters=useMemo(()=>({setEv,setTk:setTk,setCo,setCats,setSem,setTheme,setSettings,setExams,setAssignments,setOfficeHours,setShowHolidays,setCsOpen,setView,setQuickNotes,setJournalEntries,setSleepSettings,setSleepDayData,setDashPriorities,setDashLayout}),[]);
   // Derived events are always regenerated from their source data (tasks, officeHours, courses, PCAL).
@@ -1188,16 +1193,15 @@ function App(){
         {courses.length>0&&<button onClick={()=>setStudyBlockOpen(true)} style={{background:"transparent",border:`1px solid ${T.bd}`,color:T.t2,padding:"3px 8px",borderRadius:5,cursor:"pointer",fontFamily:MO,fontSize:"0.55rem",whiteSpace:"nowrap",flexShrink:0}}>+ Study Block</button>}
         <button onClick={()=>setImportOpen(true)} style={{background:"transparent",border:`1px solid ${T.ac}60`,color:T.ac,padding:"3px 8px",borderRadius:5,cursor:"pointer",fontFamily:MO,fontSize:"0.55rem",whiteSpace:"nowrap",flexShrink:0}}>⬇ Import</button>
         <button onClick={goT} style={{background:"transparent",border:`1px solid ${T.bd}`,color:T.t2,padding:"3px 8px",borderRadius:5,cursor:"pointer",fontFamily:MO,fontSize:"0.58rem",whiteSpace:"nowrap",flexShrink:0}}>TODAY</button>
-        <div style={{display:"flex",gap:2,flexShrink:0}}>
-          <button onClick={()=>nav(-1)} style={{width:24,height:24,background:"transparent",border:`1px solid ${T.bd}`,color:T.t2,borderRadius:5,cursor:"pointer",fontSize:"0.9rem",display:"flex",alignItems:"center",justifyContent:"center"}}>‹</button>
-          <button onClick={()=>nav(1)} style={{width:24,height:24,background:"transparent",border:`1px solid ${T.bd}`,color:T.t2,borderRadius:5,cursor:"pointer",fontSize:"0.9rem",display:"flex",alignItems:"center",justifyContent:"center"}}>›</button>
-        </div>
+        <button onClick={()=>setSettingsOpen(true)} title="Settings" style={{background:"transparent",border:`1px solid ${T.bd}`,color:T.t2,padding:"3px 6px",borderRadius:5,cursor:"pointer",fontSize:"0.8rem",flexShrink:0}}>⚙</button>
+        <PaletteMenu T={T} MO={MO} isDark={isDark} accentKey={accentKey} ACCENTS={ACCENTS}
+          setTheme={setTheme} settings={settings} setSettings={setSettings}/>
         <span style={{fontFamily:SE,fontSize:"0.92rem",color:T.tx,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",minWidth:0}}>{hl}</span>
       </div>
       {/* RIGHT: view picker + icon tabs + settings + palette + auth — all flexShrink:0 so they never wrap */}
       <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0,marginLeft:8}}>
         <div style={{position:"relative",zIndex:viewOpen?500:1}}>
-          <button ref={viewBtnRef} onClick={()=>{if(!viewOpen&&viewBtnRef.current){const r=viewBtnRef.current.getBoundingClientRect();setViewDropPos({top:r.bottom+4,right:window.innerWidth-r.right});}setViewOpen(p=>!p);}} style={{display:"flex",alignItems:"center",gap:5,padding:"3px 10px",
+          <button ref={viewBtnRef} onClick={()=>{if(!viewOpen&&viewBtnRef.current){const r=viewBtnRef.current.getBoundingClientRect();const minW=150,gap=4;let l=Math.max(gap,r.right-minW);l=Math.min(l,window.innerWidth-minW-gap);setViewDropPos({top:r.bottom+4,left:l});}setViewOpen(p=>!p);}} style={{display:"flex",alignItems:"center",gap:5,padding:"3px 10px",
             background:T.b3,border:`1px solid ${T.bd}`,borderRadius:6,cursor:"pointer",
             fontFamily:MO,fontSize:"0.55rem",letterSpacing:"0.07em",textTransform:"uppercase",color:T.tx,whiteSpace:"nowrap"}}>
             {view==="semester"?"Semester":view==="tasks-dashboard"?"Tasks":view==="notes-dashboard"?"Notes":view==="focus-dashboard"?"Focus":view==="home"?"Dashboard":view}
@@ -1205,7 +1209,7 @@ function App(){
           </button>
           {viewOpen&&<>
             <div onClick={()=>setViewOpen(false)} style={{position:"fixed",inset:0,zIndex:499}}/>
-            <div style={{position:"fixed",top:viewDropPos.top,right:viewDropPos.right,background:T.mb,border:`1px solid ${T.bd}`,
+            <div style={{position:"fixed",top:viewDropPos.top,left:viewDropPos.left,background:T.mb,border:`1px solid ${T.bd}`,
               borderRadius:8,boxShadow:"0 8px 24px rgba(0,0,0,0.18)",zIndex:500,minWidth:150,
               maxHeight:"calc(100vh - 80px)",overflowY:"auto"}}>
               {[["day","Day","D"],["week","Week","W"],["month","Month","M"],["year","Year","Y"],["schedule","Schedule","S"],["semester","Semester",""],["tasks-dashboard","Tasks",""],["notes-dashboard","Notes",""],["focus-dashboard","Focus",""],["home","Dashboard",""]].map(([k,label,shortcut])=>
@@ -1240,10 +1244,10 @@ function App(){
             </button>;
           })}
         </div>
-        <button onClick={()=>setSettingsOpen(true)} title="Settings" style={{background:"transparent",border:`1px solid ${T.bd}`,color:T.t2,padding:"3px 6px",borderRadius:5,cursor:"pointer",fontSize:"0.8rem"}}>⚙</button>
-        {/* Palette dropdown — 5 accents + dark mode + custom bg in one button */}
-        <PaletteMenu T={T} MO={MO} isDark={isDark} accentKey={accentKey} ACCENTS={ACCENTS}
-          setTheme={setTheme} settings={settings} setSettings={setSettings}/>
+        <div style={{display:"flex",gap:2,flexShrink:0}}>
+          <button onClick={()=>nav(-1)} style={{width:24,height:24,background:"transparent",border:`1px solid ${T.bd}`,color:T.t2,borderRadius:5,cursor:"pointer",fontSize:"0.9rem",display:"flex",alignItems:"center",justifyContent:"center"}}>‹</button>
+          <button onClick={()=>nav(1)} style={{width:24,height:24,background:"transparent",border:`1px solid ${T.bd}`,color:T.t2,borderRadius:5,cursor:"pointer",fontSize:"0.9rem",display:"flex",alignItems:"center",justifyContent:"center"}}>›</button>
+        </div>
         {/* Auth */}
         {FB_AUTH&&(user?
           <div style={{display:"flex",alignItems:"center",cursor:"pointer"}} onClick={()=>setModal({type:"_account"})}>
@@ -4713,7 +4717,7 @@ function FocusDashboard({T,MO,SE,tasks,events,courses,cats,exams,assignments,sem
             color:T.t2,cursor:"pointer",fontFamily:MO,fontSize:"0.54rem"}}>⚙ Profile</button>
       </div>
 
-      {showSetup&&<SetupBanner/>}
+      {showSetup&&SetupBanner()}
 
       {/* Top row: College countdown + Coach tone picker */}
       <div className="focus-top-row" style={{display:"grid",gridTemplateColumns:"1.2fr 1fr",gap:16,marginBottom:20}}>
@@ -4961,17 +4965,19 @@ function FocusDashboard({T,MO,SE,tasks,events,courses,cats,exams,assignments,sem
 // ═══ PALETTE MENU (replaces 5 accent dots + dark toggle + custom bg in toolbar) ═══
 function PaletteMenu({T,MO,isDark,accentKey,ACCENTS,setTheme,settings,setSettings}){
   const[open,setOpen]=useState(false);
+  const[dropPos,setDropPos]=useState({top:0,left:0});
   const activeColor=isDark?ACCENTS[accentKey]?.d:ACCENTS[accentKey]?.l;
   const bgRef=useRef(null);
-  return <div style={{position:"relative",zIndex:open?500:1}}>
-    <button onClick={()=>setOpen(p=>!p)} title="Theme & colors"
+  const paletteBtnRef=useRef(null);
+  return <div style={{position:"relative",zIndex:open?500:1,flexShrink:0}}>
+    <button ref={paletteBtnRef} onClick={()=>{if(!open&&paletteBtnRef.current){const r=paletteBtnRef.current.getBoundingClientRect();const dropW=200;const left=Math.max(4,Math.min(r.right-dropW,window.innerWidth-dropW-4));setDropPos({top:r.bottom+8,left});}setOpen(p=>!p);}} title="Theme & colors"
       style={{width:28,height:28,borderRadius:"50%",border:`2px solid ${open?activeColor:T.bd}`,
         background:activeColor,cursor:"pointer",flexShrink:0,
         boxShadow:open?`0 0 0 2px ${T.bg}, 0 0 0 4px ${activeColor}`:"none",
         transition:"all 0.15s"}}/>
     {open&&<>
       <div onClick={()=>setOpen(false)} style={{position:"fixed",inset:0,zIndex:499}}/>
-      <div style={{position:"absolute",top:"calc(100% + 8px)",right:0,background:T.mb,
+      <div style={{position:"fixed",top:dropPos.top,left:dropPos.left,background:T.mb,
         border:`1px solid ${T.bd}`,borderRadius:10,boxShadow:"0 8px 28px rgba(0,0,0,0.22)",
         zIndex:500,padding:"14px 16px",minWidth:196}}>
         {/* Accent color */}

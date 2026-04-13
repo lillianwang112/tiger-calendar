@@ -3,7 +3,7 @@
   body{font-family:'DM Sans',-apple-system,sans-serif}
   /* App shell shown instantly while JS loads */
   #app-shell{position:fixed;inset:0;z-index:9999;display:flex;flex-direction:column;background:#f5f3ef;transition:opacity 0.25s}
-  #app-shell.hide{opacity:0;pointer-events:none}
+  #app-shell.hide{opacity:0;pointer-events:none;visibility:hidden}
   #app-shell .shell-bar{display:flex;align-items:center;gap:8px;padding:8px 14px;border-bottom:1px solid #ddd8d0;background:#efece6;flex-shrink:0}
   #app-shell .shell-bar h1{font-family:'DM Serif Display',Georgia,serif;font-size:1.2rem;margin:0;letter-spacing:-0.02em;line-height:1}
   #app-shell .shell-bar h1 span{color:#5c4db3;font-style:italic}
