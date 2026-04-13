@@ -726,7 +726,7 @@ function App(){
   const[chatOpen,setChatOpen]=useState(false);
   const[viewOpen,setViewOpen]=useState(false);
   const viewBtnRef=useRef(null);
-  const[viewDropPos,setViewDropPos]=useState({top:0,right:0});
+  const[viewDropPos,setViewDropPos]=useState({top:0,left:8});
   const skipFontSizeReadRef=useRef(false);
   const[mcM,setMcM]=useState(()=>new Date());
   const[sbO,setSbO]=useState(()=>window.innerWidth>=768);
@@ -778,6 +778,14 @@ function App(){
       if(shell){shell.classList.add("hide");setTimeout(()=>shell.remove(),300);}
     }
   },[authLoading]);
+  // Failsafe: never leave the loading shell stuck on-screen if auth listeners stall.
+  useEffect(()=>{
+    const tm=setTimeout(()=>{
+      const shell=document.getElementById("app-shell");
+      if(shell){shell.classList.add("hide");setTimeout(()=>shell.remove(),300);}
+    },2200);
+    return()=>clearTimeout(tm);
+  },[]);
 
   const syncSetters=useMemo(()=>({setEv,setTk:setTk,setCo,setCats,setSem,setTheme,setSettings,setExams,setAssignments,setOfficeHours,setShowHolidays,setCsOpen,setView,setQuickNotes,setJournalEntries,setSleepSettings,setSleepDayData,setDashPriorities,setDashLayout}),[]);
   // Derived events are always regenerated from their source data (tasks, officeHours, courses, PCAL).
@@ -1188,16 +1196,16 @@ function App(){
         {courses.length>0&&<button onClick={()=>setStudyBlockOpen(true)} style={{background:"transparent",border:`1px solid ${T.bd}`,color:T.t2,padding:"3px 8px",borderRadius:5,cursor:"pointer",fontFamily:MO,fontSize:"0.55rem",whiteSpace:"nowrap",flexShrink:0}}>+ Study Block</button>}
         <button onClick={()=>setImportOpen(true)} style={{background:"transparent",border:`1px solid ${T.ac}60`,color:T.ac,padding:"3px 8px",borderRadius:5,cursor:"pointer",fontFamily:MO,fontSize:"0.55rem",whiteSpace:"nowrap",flexShrink:0}}>⬇ Import</button>
         <button onClick={goT} style={{background:"transparent",border:`1px solid ${T.bd}`,color:T.t2,padding:"3px 8px",borderRadius:5,cursor:"pointer",fontFamily:MO,fontSize:"0.58rem",whiteSpace:"nowrap",flexShrink:0}}>TODAY</button>
-        <div style={{display:"flex",gap:2,flexShrink:0}}>
-          <button onClick={()=>nav(-1)} style={{width:24,height:24,background:"transparent",border:`1px solid ${T.bd}`,color:T.t2,borderRadius:5,cursor:"pointer",fontSize:"0.9rem",display:"flex",alignItems:"center",justifyContent:"center"}}>‹</button>
-          <button onClick={()=>nav(1)} style={{width:24,height:24,background:"transparent",border:`1px solid ${T.bd}`,color:T.t2,borderRadius:5,cursor:"pointer",fontSize:"0.9rem",display:"flex",alignItems:"center",justifyContent:"center"}}>›</button>
-        </div>
+        <button onClick={()=>setSettingsOpen(true)} title="Settings" style={{background:"transparent",border:`1px solid ${T.bd}`,color:T.t2,padding:"3px 6px",borderRadius:5,cursor:"pointer",fontSize:"0.8rem"}}>⚙</button>
+        {/* Palette dropdown — 5 accents + dark mode + custom bg in one button */}
+        <PaletteMenu T={T} MO={MO} isDark={isDark} accentKey={accentKey} ACCENTS={ACCENTS}
+          setTheme={setTheme} settings={settings} setSettings={setSettings}/>
         <span style={{fontFamily:SE,fontSize:"0.92rem",color:T.tx,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",minWidth:0}}>{hl}</span>
       </div>
       {/* RIGHT: view picker + icon tabs + settings + palette + auth — all flexShrink:0 so they never wrap */}
       <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0,marginLeft:8}}>
         <div style={{position:"relative",zIndex:viewOpen?500:1}}>
-          <button ref={viewBtnRef} onClick={()=>{if(!viewOpen&&viewBtnRef.current){const r=viewBtnRef.current.getBoundingClientRect();setViewDropPos({top:r.bottom+4,right:window.innerWidth-r.right});}setViewOpen(p=>!p);}} style={{display:"flex",alignItems:"center",gap:5,padding:"3px 10px",
+          <button ref={viewBtnRef} onClick={()=>{if(!viewOpen&&viewBtnRef.current){const r=viewBtnRef.current.getBoundingClientRect();const ddWidth=180;const nextLeft=Math.max(8,Math.min(window.innerWidth-ddWidth-8,r.right-ddWidth));setViewDropPos({top:r.bottom+4,left:nextLeft});}setViewOpen(p=>!p);}} style={{display:"flex",alignItems:"center",gap:5,padding:"3px 10px",
             background:T.b3,border:`1px solid ${T.bd}`,borderRadius:6,cursor:"pointer",
             fontFamily:MO,fontSize:"0.55rem",letterSpacing:"0.07em",textTransform:"uppercase",color:T.tx,whiteSpace:"nowrap"}}>
             {view==="semester"?"Semester":view==="tasks-dashboard"?"Tasks":view==="notes-dashboard"?"Notes":view==="focus-dashboard"?"Focus":view==="home"?"Dashboard":view}
@@ -1205,7 +1213,7 @@ function App(){
           </button>
           {viewOpen&&<>
             <div onClick={()=>setViewOpen(false)} style={{position:"fixed",inset:0,zIndex:499}}/>
-            <div style={{position:"fixed",top:viewDropPos.top,right:viewDropPos.right,background:T.mb,border:`1px solid ${T.bd}`,
+            <div style={{position:"fixed",top:viewDropPos.top,left:viewDropPos.left,background:T.mb,border:`1px solid ${T.bd}`,
               borderRadius:8,boxShadow:"0 8px 24px rgba(0,0,0,0.18)",zIndex:500,minWidth:150,
               maxHeight:"calc(100vh - 80px)",overflowY:"auto"}}>
               {[["day","Day","D"],["week","Week","W"],["month","Month","M"],["year","Year","Y"],["schedule","Schedule","S"],["semester","Semester",""],["tasks-dashboard","Tasks",""],["notes-dashboard","Notes",""],["focus-dashboard","Focus",""],["home","Dashboard",""]].map(([k,label,shortcut])=>
@@ -1240,10 +1248,10 @@ function App(){
             </button>;
           })}
         </div>
-        <button onClick={()=>setSettingsOpen(true)} title="Settings" style={{background:"transparent",border:`1px solid ${T.bd}`,color:T.t2,padding:"3px 6px",borderRadius:5,cursor:"pointer",fontSize:"0.8rem"}}>⚙</button>
-        {/* Palette dropdown — 5 accents + dark mode + custom bg in one button */}
-        <PaletteMenu T={T} MO={MO} isDark={isDark} accentKey={accentKey} ACCENTS={ACCENTS}
-          setTheme={setTheme} settings={settings} setSettings={setSettings}/>
+        <div style={{display:"flex",gap:2,flexShrink:0}}>
+          <button onClick={()=>nav(-1)} style={{width:24,height:24,background:"transparent",border:`1px solid ${T.bd}`,color:T.t2,borderRadius:5,cursor:"pointer",fontSize:"0.9rem",display:"flex",alignItems:"center",justifyContent:"center"}}>‹</button>
+          <button onClick={()=>nav(1)} style={{width:24,height:24,background:"transparent",border:`1px solid ${T.bd}`,color:T.t2,borderRadius:5,cursor:"pointer",fontSize:"0.9rem",display:"flex",alignItems:"center",justifyContent:"center"}}>›</button>
+        </div>
         {/* Auth */}
         {FB_AUTH&&(user?
           <div style={{display:"flex",alignItems:"center",cursor:"pointer"}} onClick={()=>setModal({type:"_account"})}>
@@ -4631,7 +4639,7 @@ function FocusDashboard({T,MO,SE,tasks,events,courses,cats,exams,assignments,sem
   });
 
   // ── Setup banner ──
-  const SetupBanner=()=><div style={{...cardStyle,marginBottom:20,border:`1px solid ${T.ac}40`,background:`${T.ac}08`}}>
+  const renderSetupBanner=()=> <div style={{...cardStyle,marginBottom:20,border:`1px solid ${T.ac}40`,background:`${T.ac}08`}}>
     <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:12,flexWrap:"wrap"}}>
       <div>
         <div style={{fontFamily:SE,fontSize:"1.1rem",color:T.tx,marginBottom:4}}>Set up your Focus profile</div>
@@ -4713,7 +4721,7 @@ function FocusDashboard({T,MO,SE,tasks,events,courses,cats,exams,assignments,sem
             color:T.t2,cursor:"pointer",fontFamily:MO,fontSize:"0.54rem"}}>⚙ Profile</button>
       </div>
 
-      {showSetup&&<SetupBanner/>}
+      {showSetup&&renderSetupBanner()}
 
       {/* Top row: College countdown + Coach tone picker */}
       <div className="focus-top-row" style={{display:"grid",gridTemplateColumns:"1.2fr 1fr",gap:16,marginBottom:20}}>
