@@ -775,12 +775,12 @@ function App(){
   useEffect(()=>{
     if(!authLoading){
       const shell=document.getElementById("app-shell");
-      if(shell){shell.classList.add("hide");shell.style.visibility="hidden";setTimeout(()=>{if(shell.parentNode)shell.remove();},300);}
+      if(shell){shell.classList.add("hide");setTimeout(()=>{if(shell.parentNode)shell.remove();},280);}
     }
   },[authLoading]);
-  // Fallback: always hide shell after 8s in case auth never resolves (e.g. Safari PWA on macOS)
+  // Fallback: force-hide shell after 8s in case auth never resolves (e.g. Firebase blocked on macOS)
   useEffect(()=>{
-    const t=setTimeout(()=>{const s=document.getElementById("app-shell");if(s){s.classList.add("hide");s.style.visibility="hidden";setTimeout(()=>{if(s.parentNode)s.remove();},300);}},8000);
+    const t=setTimeout(()=>{const s=document.getElementById("app-shell");if(s){s.style.display="none";if(s.parentNode)s.remove();}},8000);
     return()=>clearTimeout(t);
   },[]);
 
