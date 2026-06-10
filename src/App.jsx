@@ -276,7 +276,9 @@ function useFirebaseAuth(){
       setUser(u);setLoading(false);
       if(u){setIsGuest(false);try{localStorage.setItem("tc_lastuid",u.uid);}catch(e){}} // cache uid for synchronous SK_DASH lookup on next load
     });
-    return unsub;
+    // Failsafe: if Firebase never responds (network issues, restricted domain), unblock the UI
+    const tm=setTimeout(()=>setLoading(false),4000);
+    return()=>{unsub();clearTimeout(tm);};
   },[]);
   const signInGoogle=async()=>{if(!FB_AUTH)return;const provider=new firebase.auth.GoogleAuthProvider();
     try{await FB_AUTH.signInWithPopup(provider);}catch(e){if(e.code==="auth/popup-blocked")await FB_AUTH.signInWithRedirect(provider);}};
