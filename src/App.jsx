@@ -1372,7 +1372,7 @@ function App(){
     {importOpen&&<GmailImportModal T={T} MO={MO} SE={SE} cats={cats} onImport={(evs)=>{pushUndo();setEv(p=>[...p,...evs]);}} onClose={()=>setImportOpen(false)} user={user}/>}
     {/* Chat FAB — hides when sidebar open */}
     {!chatOpen&&<button onClick={()=>setChatOpen(true)} title="AI Assistant"
-      style={{position:"fixed",bottom:24,right:24,width:50,height:50,borderRadius:"50%",
+      style={{position:"fixed",bottom:84,right:24,width:50,height:50,borderRadius:"50%",
         background:T.ac,border:"none",color:T.bg,fontSize:"1.3rem",cursor:"pointer",
         boxShadow:"0 4px 18px rgba(0,0,0,0.25)",zIndex:290,display:"flex",
         alignItems:"center",justifyContent:"center",lineHeight:1}}>💬</button>}
@@ -4670,13 +4670,16 @@ function FocusDashboard({T,MO,SE,tasks,events,courses,cats,exams,assignments,sem
         <div style={{fontFamily:MO,fontSize:"0.48rem",color:T.t3,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:5}}>Birthday</div>
         <input
           type="text"
-          inputMode="numeric"
+          inputMode="text"
           placeholder="YYYY-MM-DD"
           value={birthdayDraft}
           onChange={e=>{
-            const next=e.target.value.replace(/[^\d-]/g,"").slice(0,10);
-            setBirthdayDraft(next);
-            if(next===""||/^\d{4}-\d{2}-\d{2}$/.test(next))setBirthday(next);
+            const raw=e.target.value.replace(/[^\d]/g,"").slice(0,8);
+            let fmt=raw;
+            if(raw.length>4)fmt=raw.slice(0,4)+"-"+raw.slice(4);
+            if(raw.length>6)fmt=raw.slice(0,4)+"-"+raw.slice(4,6)+"-"+raw.slice(6);
+            setBirthdayDraft(fmt);
+            if(fmt===""||/^\d{4}-\d{2}-\d{2}$/.test(fmt))setBirthday(fmt);
           }}
           onBlur={()=>{
             const next=birthdayDraft.trim();
